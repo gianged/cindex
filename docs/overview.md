@@ -2,15 +2,15 @@
 
 **Semantic code search and context retrieval for large codebases (1M+ LoC)**
 
-**NPM Package:** `@gianged/cindex`  
-**Author:** gianged  
-**Project Type:** MCP Server for Claude Code integration
+**NPM Package:** `@gianged/cindex` **Author:** gianged **Project Type:** MCP Server for Claude Code
+integration
 
 ---
 
 ## System Overview
 
-Build a multi-stage retrieval system that progressively narrows from files → precise locations → contextual code, optimized for Claude Code integration.
+Build a multi-stage retrieval system that progressively narrows from files → precise locations →
+contextual code, optimized for Claude Code integration.
 
 ### Key Features
 
@@ -29,9 +29,9 @@ Build a multi-stage retrieval system that progressively narrows from files → p
 
 TypeScript, JavaScript, Python, Java, Go, Rust, C, C++, and more via tree-sitter parsers.
 
-**Tree-sitter Version:** 0.21.1 (Node.js bindings)
-**Language Parsers:** 0.21.x - 0.22.x (all verified compatible)
-**API Reference:** See [docs/syntax.md](./syntax.md) for complete tree-sitter API documentation
+**Tree-sitter Version:** 0.21.1 (Node.js bindings) **Language Parsers:** 0.21.x - 0.22.x (all
+verified compatible) **API Reference:** See [docs/syntax.md](./syntax.md) for complete tree-sitter
+API documentation
 
 ---
 
@@ -39,7 +39,8 @@ TypeScript, JavaScript, Python, Java, Go, Rust, C, C++, and more via tree-sitter
 
 **Database Schema:** See `database.sql` for complete schema definition.
 
-**Note:** When using non-default `EMBEDDING_DIMENSIONS`, update the vector dimension in `database.sql`:
+**Note:** When using non-default `EMBEDDING_DIMENSIONS`, update the vector dimension in
+`database.sql`:
 
 ```sql
 -- Change all vector(1024) to match your EMBEDDING_DIMENSIONS
@@ -48,7 +49,7 @@ embedding vector(1024)  -- Change 1024 to your dimension
 
 ### Tables Overview
 
-**`code_chunks`** - Core embeddings table
+j **`code_chunks`** - Core embeddings table
 
 - Stores embeddings for code chunks (functions, classes, blocks)
 - Includes token counts for context budget management
@@ -131,7 +132,8 @@ npm run build
 
 ### Environment Variables
 
-The MCP server is configured via environment variables in the MCP `.json` configuration file. All settings have sensible defaults but can be overridden.
+The MCP server is configured via environment variables in the MCP `.json` configuration file. All
+settings have sensible defaults but can be overridden.
 
 **MCP Configuration File Locations:**
 
@@ -171,20 +173,17 @@ The MCP server is configured via environment variables in the MCP `.json` config
 #### Model Configuration
 
 - **`EMBEDDING_MODEL`** (default: `mxbai-embed-large`)
-
   - Ollama embedding model to use
   - Alternatives: `nomic-embed-text`, `mxbai-embed-large`, custom models
   - Must match `EMBEDDING_DIMENSIONS`
 
 - **`EMBEDDING_DIMENSIONS`** (default: `1024`)
-
   - Vector dimensions for embeddings
   - Must match the model's output dimensions
   - `mxbai-embed-large`: 1024
   - `nomic-embed-text`: 768
 
 - **`SUMMARY_MODEL`** (default: `qwen2.5-coder:1.5b`)
-
   - Ollama model for generating file summaries
   - Options: `qwen2.5-coder:1.5b` (fast), `qwen2.5-coder:3b` (accurate), `qwen2.5-coder:7b` (best)
   - Set to empty string to disable LLM summaries (use rule-based)
@@ -196,20 +195,16 @@ The MCP server is configured via environment variables in the MCP `.json` config
 #### PostgreSQL Configuration
 
 - **`POSTGRES_HOST`** (default: `localhost`)
-
   - PostgreSQL server hostname or IP
 
 - **`POSTGRES_PORT`** (default: `5432`)
-
   - PostgreSQL server port
   - Common alternative: `5433` for secondary instances
 
 - **`POSTGRES_DB`** (default: `cindex_rag_codebase`)
-
   - Database name
 
 - **`POSTGRES_USER`** (default: `postgres`)
-
   - Database username
 
 - **`POSTGRES_PASSWORD`** (required)
@@ -219,21 +214,18 @@ The MCP server is configured via environment variables in the MCP `.json` config
 #### Accuracy/Performance Tuning
 
 - **`HNSW_EF_SEARCH`** (default: `300`)
-
   - HNSW search quality parameter (40-400)
   - Higher = more accurate, slower queries
   - Accuracy priority: 300
   - Speed priority: 100
 
 - **`HNSW_EF_CONSTRUCTION`** (default: `200`)
-
   - HNSW index build quality (64-400)
   - Higher = better index quality, longer build time
   - Accuracy priority: 200
   - Speed priority: 64
 
 - **`SIMILARITY_THRESHOLD`** (default: `0.75`)
-
   - Minimum similarity score for chunk retrieval (0.0-1.0)
   - Higher = fewer but more relevant results
   - Accuracy priority: 0.75
@@ -300,17 +292,14 @@ The MCP server is configured via environment variables in the MCP `.json` config
 ### Configuration Notes
 
 1. **Model Dimensions Must Match:**
-
    - If changing `EMBEDDING_MODEL`, update `EMBEDDING_DIMENSIONS`
    - Mismatch will cause vector dimension errors in PostgreSQL
 
 2. **Re-indexing After Model Changes:**
-
    - Changing `EMBEDDING_MODEL` requires full re-index
    - Changing `SUMMARY_MODEL` only affects new/updated files
 
 3. **HNSW Parameters:**
-
    - Changes to `HNSW_EF_SEARCH` take effect immediately (runtime parameter)
    - Changes to `HNSW_EF_CONSTRUCTION` require index rebuild
 
@@ -599,10 +588,8 @@ Showing top 30 most relevant locations. Consider narrowing query.
 ### Context Formatting for Claude
 
 ````markdown
-⚠️ **Context Size Warning**
-Total tokens: 127,843 (exceeds 100k recommended limit)
-Files: 12 | Code locations: 35 | Deduplicated: 8 chunks
-Query time: 420ms
+⚠️ **Context Size Warning** Total tokens: 127,843 (exceeds 100k recommended limit) Files: 12 | Code
+locations: 35 | Deduplicated: 8 chunks Query time: 420ms
 
 ---
 
@@ -622,7 +609,7 @@ function authenticateUser(username: string, password: string): Promise<User> {
   const hashedInput = hashPassword(password);
   const user = await db.users.findOne({ username });
   if (!user || user.password !== hashedInput) {
-    throw new AuthError("Invalid credentials");
+    throw new AuthError('Invalid credentials');
   }
   return user;
 }
@@ -634,8 +621,7 @@ function authenticateUser(username: string, password: string): Promise<User> {
   ```typescript
   export function hashPassword(plain: string): string;
   ```
-- `bcrypt` from `node_modules/bcrypt` [depth 2]
-  External dependency - not expanded
+- `bcrypt` from `node_modules/bcrypt` [depth 2] External dependency - not expanded
 ````
 
 ---
@@ -1074,13 +1060,11 @@ Alternative: Batch progress updates every 10k vectors
    - Set environment variables for models and database
    - Choose accuracy-first or speed-first preset
 2. **PostgreSQL + pgvector**
-
    - Install PostgreSQL 16+
    - Enable pgvector extension: `CREATE EXTENSION vector;`
    - Create database: `cindex_rag_codebase` (or name specified in config)
 
 3. **Ollama Setup**
-
    - Install Ollama
    - Pull embedding model: `ollama pull mxbai-embed-large` (or configured model)
    - Pull LLM (required for accuracy): `ollama pull qwen2.5-coder:1.5b` or `qwen2.5-coder:3b`
@@ -1099,58 +1083,49 @@ Alternative: Batch progress updates every 10k vectors
 ### Initial Implementation Order
 
 1. **Configuration setup** (Day 1)
-
    - Set up MCP `.json` file with environment variables
    - Configure embedding model, summary model, PostgreSQL connection
    - Test Ollama connectivity and model availability
    - Verify PostgreSQL connection
 
 2. **Schema creation** (Day 1)
-
    - Run all CREATE TABLE statements
    - Set up indexes (defer HNSW for testing - use IVFFlat first)
    - Test with sample data
 
 3. **File discovery** (Day 2)
-
    - Implement directory walker with gitignore support
    - File filtering logic (extensions, size limits)
    - SHA256 hashing for each file
 
 4. **Chunking pipeline** (Day 3-4)
-
    - Tree-sitter integration for TypeScript/JavaScript
    - Regex fallback for unsupported languages
    - LLM-based file summary generation (using configured SUMMARY_MODEL)
    - Token counting for chunks
 
 5. **Embedding generation** (Day 5)
-
    - Ollama API integration (using configured EMBEDDING_MODEL)
    - Batch processing (handle 100+ files)
    - Progress tracking
 
 6. **Basic retrieval** (Day 6-7)
-
    - Stage 1: File-level search
    - Stage 2: Chunk-level search
    - Apply configured similarity thresholds
    - Test with small codebase (1k-5k LoC)
 
 7. **Incremental updates** (Week 2 Day 1-2)
-
    - Hash comparison logic
    - Differential re-indexing
    - Deleted file cleanup
 
 8. **Symbol resolution** (Week 2 Day 3-4)
-
    - Extract symbols during chunking
    - Build symbol index
    - Import chain traversal with depth limits
 
 9. **MCP server** (Week 3)
-
    - Implement 4 core tools
    - Context formatting for Claude Code
    - Token warning system

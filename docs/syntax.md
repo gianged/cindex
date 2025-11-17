@@ -19,8 +19,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 const server = new McpServer({
-    name: 'server-name',
-    version: '1.0.0'
+  name: 'server-name',
+  version: '1.0.0',
 });
 ```
 
@@ -28,26 +28,26 @@ const server = new McpServer({
 
 ```typescript
 server.registerTool(
-    'tool-name',
-    {
-        title: 'Tool Title',
-        description: 'Tool description',
-        inputSchema: {
-            param1: z.string(),
-            param2: z.number()
-        },
-        outputSchema: {
-            result: z.string(),
-            success: z.boolean()
-        }
+  'tool-name',
+  {
+    title: 'Tool Title',
+    description: 'Tool description',
+    inputSchema: {
+      param1: z.string(),
+      param2: z.number(),
     },
-    async ({ param1, param2 }) => {
-        const output = { result: 'value', success: true };
-        return {
-            content: [{ type: 'text', text: JSON.stringify(output) }],
-            structuredContent: output
-        };
-    }
+    outputSchema: {
+      result: z.string(),
+      success: z.boolean(),
+    },
+  },
+  async ({ param1, param2 }) => {
+    const output = { result: 'value', success: true };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(output) }],
+      structuredContent: output,
+    };
+  }
 );
 ```
 
@@ -57,19 +57,21 @@ server.registerTool(
 
 ```typescript
 server.registerResource(
-    'resource-name',
-    'app://resource-uri',
-    {
-        title: 'Resource Title',
-        description: 'Resource description',
-        mimeType: 'application/json'
-    },
-    async (uri) => ({
-        contents: [{
-            uri: uri.href,
-            text: JSON.stringify({ data: 'value' })
-        }]
-    })
+  'resource-name',
+  'app://resource-uri',
+  {
+    title: 'Resource Title',
+    description: 'Resource description',
+    mimeType: 'application/json',
+  },
+  async (uri) => ({
+    contents: [
+      {
+        uri: uri.href,
+        text: JSON.stringify({ data: 'value' }),
+      },
+    ],
+  })
 );
 ```
 
@@ -79,22 +81,24 @@ server.registerResource(
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 server.registerResource(
-    'resource-name',
-    new ResourceTemplate('users://{userId}/profile', { list: undefined }),
-    {
-        title: 'User Profile',
-        description: 'Dynamic user profile data'
-    },
-    async (uri, { userId }) => {
-        const data = { id: userId, name: `User ${userId}` };
-        return {
-            contents: [{
-                uri: uri.href,
-                mimeType: 'application/json',
-                text: JSON.stringify(data)
-            }]
-        };
-    }
+  'resource-name',
+  new ResourceTemplate('users://{userId}/profile', { list: undefined }),
+  {
+    title: 'User Profile',
+    description: 'Dynamic user profile data',
+  },
+  async (uri, { userId }) => {
+    const data = { id: userId, name: `User ${userId}` };
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: 'application/json',
+          text: JSON.stringify(data),
+        },
+      ],
+    };
+  }
 );
 ```
 
@@ -102,32 +106,34 @@ server.registerResource(
 
 ```typescript
 server.registerResource(
-    'repository',
-    new ResourceTemplate('github://repos/{owner}/{repo}', {
-        list: undefined,
-        complete: {
-            owner: (value) => {
-                return ['microsoft', 'google', 'facebook'].filter(o => o.startsWith(value));
-            },
-            repo: (value, context) => {
-                const owner = context?.arguments?.['owner'];
-                if (owner === 'microsoft') {
-                    return ['vscode', 'typescript'].filter(r => r.startsWith(value));
-                }
-                return ['repo1', 'repo2'].filter(r => r.startsWith(value));
-            }
+  'repository',
+  new ResourceTemplate('github://repos/{owner}/{repo}', {
+    list: undefined,
+    complete: {
+      owner: (value) => {
+        return ['microsoft', 'google', 'facebook'].filter((o) => o.startsWith(value));
+      },
+      repo: (value, context) => {
+        const owner = context?.arguments?.['owner'];
+        if (owner === 'microsoft') {
+          return ['vscode', 'typescript'].filter((r) => r.startsWith(value));
         }
-    }),
-    {
-        title: 'GitHub Repository',
-        description: 'Repository data'
+        return ['repo1', 'repo2'].filter((r) => r.startsWith(value));
+      },
     },
-    async (uri, { owner, repo }) => ({
-        contents: [{
-            uri: uri.href,
-            text: `Repository: ${owner}/${repo}`
-        }]
-    })
+  }),
+  {
+    title: 'GitHub Repository',
+    description: 'Repository data',
+  },
+  async (uri, { owner, repo }) => ({
+    contents: [
+      {
+        uri: uri.href,
+        text: `Repository: ${owner}/${repo}`,
+      },
+    ],
+  })
 );
 ```
 
@@ -135,23 +141,23 @@ server.registerResource(
 
 ```typescript
 server.registerPrompt(
-    'prompt-name',
-    {
-        title: 'Prompt Title',
-        description: 'Prompt description',
-        argsSchema: { message: z.string() }
-    },
-    ({ message }) => ({
-        messages: [
-            {
-                role: 'user',
-                content: {
-                    type: 'text',
-                    text: `Process this: ${message}`
-                }
-            }
-        ]
-    })
+  'prompt-name',
+  {
+    title: 'Prompt Title',
+    description: 'Prompt description',
+    argsSchema: { message: z.string() },
+  },
+  ({ message }) => ({
+    messages: [
+      {
+        role: 'user',
+        content: {
+          type: 'text',
+          text: `Process this: ${message}`,
+        },
+      },
+    ],
+  })
 );
 ```
 
@@ -159,9 +165,15 @@ server.registerPrompt(
 
 ```typescript
 // Register tool
-const tool = server.registerTool('tool-name', { /* config */ }, async (params) => {
+const tool = server.registerTool(
+  'tool-name',
+  {
+    /* config */
+  },
+  async (params) => {
     // Implementation
-});
+  }
+);
 
 // Disable tool (won't show up in listTools)
 tool.disable();
@@ -171,7 +183,7 @@ tool.enable();
 
 // Update tool schema
 tool.update({
-    inputSchema: { newParam: z.string() }
+  inputSchema: { newParam: z.string() },
 });
 
 // Remove tool completely (triggers notification)
@@ -182,36 +194,34 @@ tool.remove();
 
 ```typescript
 server.registerTool(
-    'list-files',
-    {
-        title: 'List Files',
-        inputSchema: { pattern: z.string() },
-        outputSchema: {
-            count: z.number(),
-            files: z.array(z.object({ name: z.string(), uri: z.string() }))
-        }
+  'list-files',
+  {
+    title: 'List Files',
+    inputSchema: { pattern: z.string() },
+    outputSchema: {
+      count: z.number(),
+      files: z.array(z.object({ name: z.string(), uri: z.string() })),
     },
-    async ({ pattern }) => {
-        const output = {
-            count: 2,
-            files: [
-                { name: 'README.md', uri: 'file:///project/README.md' }
-            ]
-        };
-        return {
-            content: [
-                { type: 'text', text: JSON.stringify(output) },
-                {
-                    type: 'resource_link',
-                    uri: 'file:///project/README.md',
-                    name: 'README.md',
-                    mimeType: 'text/markdown',
-                    description: 'A README file'
-                }
-            ],
-            structuredContent: output
-        };
-    }
+  },
+  async ({ pattern }) => {
+    const output = {
+      count: 2,
+      files: [{ name: 'README.md', uri: 'file:///project/README.md' }],
+    };
+    return {
+      content: [
+        { type: 'text', text: JSON.stringify(output) },
+        {
+          type: 'resource_link',
+          uri: 'file:///project/README.md',
+          name: 'README.md',
+          mimeType: 'text/markdown',
+          description: 'A README file',
+        },
+      ],
+      structuredContent: output,
+    };
+  }
 );
 ```
 
@@ -219,31 +229,33 @@ server.registerTool(
 
 ```typescript
 server.registerTool(
-    'book-restaurant',
-    { /* schema */ },
-    async ({ restaurant, date, partySize }) => {
-        const available = await checkAvailability(restaurant, date, partySize);
+  'book-restaurant',
+  {
+    /* schema */
+  },
+  async ({ restaurant, date, partySize }) => {
+    const available = await checkAvailability(restaurant, date, partySize);
 
-        if (!available) {
-            const result = await server.server.elicitInput({
-                message: `No tables available. Check alternatives?`,
-                requestedSchema: {
-                    type: 'object',
-                    properties: {
-                        checkAlternatives: {
-                            type: 'boolean',
-                            title: 'Check alternative dates'
-                        }
-                    },
-                    required: ['checkAlternatives']
-                }
-            });
+    if (!available) {
+      const result = await server.server.elicitInput({
+        message: `No tables available. Check alternatives?`,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            checkAlternatives: {
+              type: 'boolean',
+              title: 'Check alternative dates',
+            },
+          },
+          required: ['checkAlternatives'],
+        },
+      });
 
-            if (result.action === 'accept' && result.content?.checkAlternatives) {
-                // Handle alternative logic
-            }
-        }
+      if (result.action === 'accept' && result.content?.checkAlternatives) {
+        // Handle alternative logic
+      }
     }
+  }
 );
 ```
 
@@ -255,37 +267,39 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const server = new Server(
-    { name: 'server-name', version: '1.0.0' },
-    { capabilities: { tools: { listChanged: true } } }
+  { name: 'server-name', version: '1.0.0' },
+  { capabilities: { tools: { listChanged: true } } }
 );
 
 // Handle tool listing
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-        tools: [{
-            name: 'multiply',
-            description: 'Multiply two numbers',
-            inputSchema: {
-                type: 'object',
-                properties: {
-                    a: { type: 'number' },
-                    b: { type: 'number' }
-                },
-                required: ['a', 'b']
-            }
-        }]
-    };
+  return {
+    tools: [
+      {
+        name: 'multiply',
+        description: 'Multiply two numbers',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            a: { type: 'number' },
+            b: { type: 'number' },
+          },
+          required: ['a', 'b'],
+        },
+      },
+    ],
+  };
 });
 
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name === 'multiply') {
-        const { a, b } = request.params.arguments as { a: number; b: number };
-        return {
-            content: [{ type: 'text', text: `Result: ${a * b}` }]
-        };
-    }
-    throw new Error('Unknown tool');
+  if (request.params.name === 'multiply') {
+    const { a, b } = request.params.arguments as { a: number; b: number };
+    return {
+      content: [{ type: 'text', text: `Result: ${a * b}` }],
+    };
+  }
+  throw new Error('Unknown tool');
 });
 
 const transport = new StdioServerTransport();
@@ -302,18 +316,18 @@ const app = express();
 app.use(express.json());
 
 app.post('/mcp', async (req, res) => {
-    const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-        enableJsonResponse: true
-    });
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
 
-    res.on('close', () => transport.close());
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
+  res.on('close', () => transport.close());
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
 });
 
 app.listen(3000, () => {
-    console.log('MCP Server running on http://localhost:3000/mcp');
+  console.log('MCP Server running on http://localhost:3000/mcp');
 });
 ```
 
@@ -324,13 +338,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const transport = new StdioClientTransport({
-    command: 'node',
-    args: ['server.js']
+  command: 'node',
+  args: ['server.js'],
 });
 
 const client = new Client({
-    name: 'client-name',
-    version: '1.0.0'
+  name: 'client-name',
+  version: '1.0.0',
 });
 
 await client.connect(transport);
@@ -340,8 +354,8 @@ const prompts = await client.listPrompts();
 
 // Get a prompt
 const prompt = await client.getPrompt({
-    name: 'example-prompt',
-    arguments: { arg1: 'value' }
+  name: 'example-prompt',
+  arguments: { arg1: 'value' },
 });
 
 // List resources
@@ -349,13 +363,13 @@ const resources = await client.listResources();
 
 // Read a resource
 const resource = await client.readResource({
-    uri: 'file:///example.txt'
+  uri: 'file:///example.txt',
 });
 
 // Call a tool
 const result = await client.callTool({
-    name: 'example-tool',
-    arguments: { arg1: 'value' }
+  name: 'example-tool',
+  arguments: { arg1: 'value' },
 });
 ```
 
@@ -538,10 +552,10 @@ ORDER BY 1 - (embedding <=> '[3,1,2]') DESC LIMIT 5;
 
 ## tree-sitter
 
-**Current Version:** 0.21.1 (Node.js bindings)
-**Language Parsers:** 0.21.x - 0.22.x
+**Current Version:** 0.21.1 (Node.js bindings) **Language Parsers:** 0.21.x - 0.22.x
 
-> **Note:** The API is stable across 0.21.x, 0.22.x, and 0.25.x versions. All examples below are compatible with tree-sitter 0.21.1.
+> **Note:** The API is stable across 0.21.x, 0.22.x, and 0.25.x versions. All examples below are
+> compatible with tree-sitter 0.21.1.
 
 ### Basic Parser Setup (Node.js)
 
@@ -559,10 +573,7 @@ const tree = parser.parse(sourceCode);
 ### Parse from Custom Data Structure
 
 ```typescript
-const sourceLines = [
-  'let x = 1;',
-  'console.log(x);'
-];
+const sourceLines = ['let x = 1;', 'console.log(x);'];
 
 const tree = parser.parse((index, position) => {
   let line = sourceLines[position.row];
@@ -692,6 +703,7 @@ npm install tree-sitter-typescript@^0.21.2
 ```
 
 **Version Compatibility:**
+
 - All language parsers are tested and compatible with tree-sitter 0.21.1
 - Using `^` allows patch updates within the same minor version
 - If upgrading tree-sitter core, ensure all language parsers support the target version
@@ -703,6 +715,7 @@ npm install tree-sitter-typescript@^0.21.2
 ### Performance Tips
 
 #### pgvector
+
 - Use HNSW indexes for better performance than IVFFlat
 - Normalize vectors before using inner product operator
 - Use subvector indexing for high-dimensional vectors
@@ -710,6 +723,7 @@ npm install tree-sitter-typescript@^0.21.2
 - Use partial indexes when filtering on specific values
 
 #### tree-sitter
+
 - Native Node.js bindings are ~2x faster than WASM
 - Reuse parser instances when parsing multiple files
 - Use named node traversal for AST-like navigation
@@ -718,6 +732,7 @@ npm install tree-sitter-typescript@^0.21.2
 ### Common Patterns
 
 #### MCP Server Structure
+
 ```
 server/
    index.ts          # Server initialization
@@ -727,6 +742,7 @@ server/
 ```
 
 #### Vector Database Schema
+
 ```sql
 CREATE TABLE documents (
     id bigserial PRIMARY KEY,
@@ -742,4 +758,4 @@ CREATE INDEX ON documents USING gin(metadata);
 
 ---
 
-*Generated with Context7 for CIndex project*
+_Generated with Context7 for CIndex project_

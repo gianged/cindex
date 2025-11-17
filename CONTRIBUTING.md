@@ -1,6 +1,7 @@
 # Contributing to cindex
 
-Thank you for your interest in contributing to cindex! This document provides guidelines for contributing to the project.
+Thank you for your interest in contributing to cindex! This document provides guidelines for
+contributing to the project.
 
 ## Development Setup
 
@@ -98,7 +99,6 @@ cindex/
    ```
 
 2. **Make your changes:**
-
    - Write clean, documented code
    - Follow TypeScript best practices
    - Add tests for new features
@@ -121,7 +121,6 @@ cindex/
    ```
 
    Follow [Conventional Commits](https://www.conventionalcommits.org/):
-
    - `feat:` New feature
    - `fix:` Bug fix
    - `docs:` Documentation changes
@@ -219,7 +218,6 @@ Include:
 ## Pull Request Process
 
 1. **Ensure your PR:**
-
    - Has a clear title and description
    - References related issues
    - Passes all tests and linting
@@ -227,7 +225,6 @@ Include:
    - Has no merge conflicts
 
 2. **Review process:**
-
    - Maintainer will review within 1-2 weeks
    - Address review feedback
    - Squash commits if requested
@@ -267,4 +264,5 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ## Acknowledgments
 
-Thank you for contributing to cindex! Your efforts help make intelligent code search accessible to everyone.
+Thank you for contributing to cindex! Your efforts help make intelligent code search accessible to
+everyone.

@@ -1,14 +1,16 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this
+repository.
 
 ## Project Overview
 
-**cindex** is a Model Context Protocol (MCP) server that provides semantic code search and context retrieval for large codebases (1M+ LoC). It integrates with Claude Code to enable intelligent code discovery through vector embeddings, multi-stage retrieval, and dependency analysis.
+**cindex** is a Model Context Protocol (MCP) server that provides semantic code search and context
+retrieval for large codebases (1M+ LoC). It integrates with Claude Code to enable intelligent code
+discovery through vector embeddings, multi-stage retrieval, and dependency analysis.
 
-**Package:** `@gianged/cindex`
-**Type:** MCP Server (TypeScript)
-**Main Purpose:** RAG (Retrieval-Augmented Generation) for code understanding
+**Package:** `@gianged/cindex` **Type:** MCP Server (TypeScript) **Main Purpose:** RAG
+(Retrieval-Augmented Generation) for code understanding
 
 ## Key Technologies
 
@@ -114,19 +116,23 @@ Three main tables with vector indexes:
 - **`code_files`:** File-level metadata with summaries and SHA256 hashes
 - **`code_symbols`:** Symbol registry for function/class/variable lookups
 
-**Important:** Vector dimensions (1024) must match the embedding model. If changing `EMBEDDING_MODEL` in MCP config, update all `vector(1024)` declarations in database.sql.
+**Important:** Vector dimensions (1024) must match the embedding model. If changing
+`EMBEDDING_MODEL` in MCP config, update all `vector(1024)` declarations in database.sql.
 
 ## Configuration via Environment Variables
 
-All settings are configured through environment variables in the MCP config file (`~/.config/claude/mcp.json`):
+All settings are configured through environment variables in the MCP config file
+(`~/.config/claude/mcp.json`):
 
 ### Model Settings
+
 - `EMBEDDING_MODEL` (default: mxbai-embed-large)
 - `EMBEDDING_DIMENSIONS` (default: 1024)
 - `SUMMARY_MODEL` (default: qwen2.5-coder:1.5b)
 - `OLLAMA_HOST` (default: http://localhost:11434)
 
 ### Database Settings
+
 - `POSTGRES_HOST` (default: localhost)
 - `POSTGRES_PORT` (default: 5432)
 - `POSTGRES_DB` (default: cindex_rag_codebase)
@@ -134,6 +140,7 @@ All settings are configured through environment variables in the MCP config file
 - `POSTGRES_PASSWORD` (required)
 
 ### Accuracy/Performance Tuning
+
 - `HNSW_EF_SEARCH` (default: 300) - Higher = more accurate, slower
 - `HNSW_EF_CONSTRUCTION` (default: 200) - Higher = better index quality
 - `SIMILARITY_THRESHOLD` (default: 0.75) - Minimum similarity for retrieval
@@ -141,13 +148,15 @@ All settings are configured through environment variables in the MCP config file
 
 ## MCP Server Configuration Scopes
 
-Claude Code supports three configuration scopes for MCP servers, allowing you to control where servers are available:
+Claude Code supports three configuration scopes for MCP servers, allowing you to control where
+servers are available:
 
 ### User Scope (~/.claude.json)
 
 **Purpose:** Personal MCP servers available across all your projects.
 
 **Use cases:**
+
 - Personal utilities you use frequently (database tools, file managers)
 - Development helpers specific to your workflow
 - Testing new MCP servers before sharing with team
@@ -155,6 +164,7 @@ Claude Code supports three configuration scopes for MCP servers, allowing you to
 **Location:** `~/.claude.json` in your home directory
 
 **Example configuration:**
+
 ```json
 {
   "mcpServers": {
@@ -174,6 +184,7 @@ Claude Code supports three configuration scopes for MCP servers, allowing you to
 **Purpose:** Team-shared MCP servers specific to this project, checked into version control.
 
 **Use cases:**
+
 - Project dependencies required by all contributors (e.g., context7 for this project)
 - Project-specific tools (codebase analyzers, custom integrations)
 - Ensures consistent tooling across team members
@@ -181,6 +192,7 @@ Claude Code supports three configuration scopes for MCP servers, allowing you to
 **Location:** `.mcp.json` in the project root directory
 
 **Example configuration:**
+
 ```json
 {
   "mcpServers": {
@@ -200,6 +212,7 @@ Claude Code supports three configuration scopes for MCP servers, allowing you to
 ```
 
 **Important notes:**
+
 - Use environment variable expansion (`${VAR_NAME:-default}`) for sensitive values
 - Add `.mcp.json` to version control for team sharing
 - Claude Code prompts for approval before using project-scoped servers (security measure)
@@ -210,6 +223,7 @@ Claude Code supports three configuration scopes for MCP servers, allowing you to
 **Purpose:** Session-only servers that don't persist.
 
 **Use cases:**
+
 - Quick testing of MCP servers
 - Temporary debugging tools
 - One-off experiments
@@ -224,21 +238,25 @@ When multiple servers with the same name exist at different scopes:
 2. **Project scope** - Team-shared servers from `.mcp.json`
 3. **User scope** (lowest priority) - Personal servers from `~/.claude.json`
 
-This allows you to override team settings temporarily or test alternatives without affecting other contributors.
+This allows you to override team settings temporarily or test alternatives without affecting other
+contributors.
 
 ### Best Practices
 
 **User scope:**
+
 - Personal development tools and utilities
 - Experimental MCP servers you're testing
 - Servers you use across multiple projects
 
 **Project scope:**
+
 - Core dependencies required by the project
 - Team-shared integrations (databases, APIs, documentation tools)
 - Ensure all team members have consistent tooling
 
 **Security:**
+
 - Never commit API keys or passwords directly in `.mcp.json`
 - Use environment variable expansion: `"API_KEY": "${API_KEY}"`
 - Add sensitive `.env` files to `.gitignore`
@@ -247,31 +265,37 @@ This allows you to override team settings temporarily or test alternatives witho
 ## Key Implementation Details
 
 ### Incremental Indexing
+
 - SHA256 hash per file stored in `code_files.file_hash`
 - On re-index: compare hashes, skip unchanged files
 - Only re-embed modified files for fast updates
 
 ### Deduplication Strategy
+
 - Post-retrieval comparison of chunk embeddings
 - If similarity >0.92: keep highest-scoring chunk, discard duplicates
 - Prevents utility function pollution in results
 
 ### Context Window Management
+
 - Token estimation: ~4 chars = 1 token
 - Warn if context >100k tokens (no hard limit)
 - Token counts stored in `code_chunks.token_count`
 
 ### Import Chain Traversal
+
 - Maximum depth: 3 levels (prevent runaway expansion)
 - Circular import detection via visited files tracking
 - Mark truncated chains in metadata
 
 ### Large File Handling
+
 - <1000 lines: Normal chunking
 - 1000-5000 lines: Section-based chunking
-- >5000 lines: Structure-only indexing (summary + exports)
+- > 5000 lines: Structure-only indexing (summary + exports)
 
 ### Tree-sitter Fallback
+
 - Use regex-based chunking if tree-sitter fails
 - 200-line sliding window with 20-line overlap
 - Mark chunks as `chunk_type: 'fallback'`
@@ -279,6 +303,7 @@ This allows you to override team settings temporarily or test alternatives witho
 ## Testing Strategy
 
 When writing tests:
+
 - **Unit tests:** Test each stage independently (chunking, embedding, retrieval)
 - **Integration tests:** End-to-end query flow
 - **Scale tests:** Test with small (1k LoC), medium (50k LoC), and large (1M+ LoC) codebases
@@ -289,13 +314,16 @@ Use test fixtures in `tests/fixtures/` for consistent test data.
 ## Performance Targets
 
 ### Accuracy-First Mode (Default)
+
 - **Indexing:** 300-600 files/min (slower due to LLM summaries)
 - **Query time:** <800ms
 - **Relevance:** >92% in top 10 results
 - **Context noise:** <2%
 
 ### Speed-First Mode (Alternative)
+
 Set `SUMMARY_MODEL=qwen2.5-coder:1.5b`, `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESHOLD=0.70`
+
 - **Indexing:** 500-1000 files/min
 - **Query time:** <500ms
 - **Relevance:** >85% in top 10 results
@@ -335,7 +363,8 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b`, `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESH
 
 - Provide clear error messages with context (file path, operation, model name)
 - Log errors with appropriate severity levels
-- Handle common errors: PostgreSQL connection failures, Ollama unavailable, vector dimension mismatches
+- Handle common errors: PostgreSQL connection failures, Ollama unavailable, vector dimension
+  mismatches
 - Never fail silently - always inform user of issues
 
 ## Development Workflow
@@ -343,11 +372,13 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b`, `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESH
 ### Setting Up Development Environment
 
 1. Install PostgreSQL 16+ with pgvector:
+
    ```bash
    sudo apt install postgresql-16 postgresql-16-pgvector
    ```
 
 2. Install Ollama and pull models:
+
    ```bash
    curl https://ollama.ai/install.sh | sh
    ollama pull mxbai-embed-large
@@ -355,6 +386,7 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b`, `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESH
    ```
 
 3. Create development database:
+
    ```bash
    createdb cindex_rag_codebase_dev
    psql cindex_rag_codebase_dev < database.sql
