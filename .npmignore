@@ -1,0 +1,70 @@
+# Source files (TypeScript - we ship compiled JS in dist/)
+src/
+*.ts
+!*.d.ts
+
+# Tests
+test/
+tests/
+__tests__/
+*.spec.ts
+*.spec.js
+*.test.ts
+*.test.js
+coverage/
+.nyc_output
+
+# Development configuration
+tsconfig.json
+tsconfig.*.json
+.eslintrc*
+.prettierrc*
+eslint.config.*
+jest.config.*
+.editorconfig
+
+# Development files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.log
+*.tmp
+.env
+.env.*
+
+# Documentation (exclude internal docs, keep user-facing)
+docs/
+CLAUDE.md
+CONTRIBUTING.md
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Dependencies
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Misc
+.cache/
+temp/
+tmp/
+*.tsbuildinfo
+
+# NPM package will include:
+# - dist/ (compiled JavaScript)
+# - database.sql (database schema)
+# - README.md (documentation)
+# - LICENSE (license file)
+# - package.json (package metadata)

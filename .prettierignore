@@ -1,0 +1,33 @@
+# Build output
+dist/
+build/
+*.min.js
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Coverage
+coverage/
+
+# Cache
+.cache/
+.eslintcache
+
+# Generated files
+*.d.ts
+
+# Database
+database.sql
+
+# Docs that shouldn't be reformatted
+CHANGELOG.md
+LICENSE
+
+# Temporary files
+*.log
+*.tmp
+temp/
+tmp/
