@@ -1,231 +1,140 @@
 # Phase 4: Multi-Stage Retrieval System
 
-**Estimated Duration:** 4-5 days **Priority:** Critical - Core RAG functionality
+**Estimated Duration:** 4-5 days
+**Priority:** Critical - Core RAG functionality
 
 ---
 
 ## Overview
 
-Implement the 5-stage retrieval pipeline that progressively narrows from broad file-level search to
-precise code locations with dependency context. This delivers vector similarity search, symbol
-resolution, import chain expansion, deduplication, and context assembly.
+Implement the 5-stage retrieval pipeline that progressively narrows from broad file-level search to precise code locations with dependency context. This delivers semantic search, symbol resolution, import chain expansion, deduplication, and context assembly.
 
 ---
 
 ## Checklist
 
-### 1. Query Embedding Generation
+### 1. Query Processing
 
-- [ ] Create `src/retrieval/query-processor.ts`
-- [ ] Detect query type (natural language vs code snippet)
-- [ ] Preprocess query:
-  - [ ] Trim whitespace
-  - [ ] Normalize text
-  - [ ] Remove special characters (except in code)
-- [ ] Generate query embedding via Ollama
-- [ ] Return 1024-dimension vector
-- [ ] Cache query embeddings (same query = reuse)
+- [ ] Create `src/retrieval/query-processor.ts` for query handling
+- [ ] Detect query type: natural language vs code snippet
+- [ ] Preprocess query: trim whitespace, normalize text, remove special characters (except in code)
+- [ ] Generate query embedding via Ollama (1024 dimensions)
+- [ ] Cache query embeddings: same query text = reuse embedding, 1 hour TTL
+- [ ] Output: QueryEmbedding{query_text, query_type, embedding (1024 dims), generation_time_ms}
 
 ### 2. Stage 1: File-Level Retrieval
 
-- [ ] Create `src/retrieval/file-retrieval.ts`
-- [ ] Implement SQL query:
-  - [ ] SELECT from `code_files`
-  - [ ] Calculate cosine similarity: `1 - (summary_embedding <=> query_embedding)`
-  - [ ] WHERE similarity > `SIMILARITY_THRESHOLD` (0.70)
-  - [ ] ORDER BY similarity DESC
-  - [ ] LIMIT `max_files` (default: 15)
-- [ ] Return relevant files with metadata:
-  - [ ] file_path
-  - [ ] file_summary
-  - [ ] language
-  - [ ] line_count
-  - [ ] imports
-  - [ ] exports
-  - [ ] similarity score
+- [ ] Create `src/retrieval/file-retrieval.ts` for broad file search
+- [ ] Implement SQL query: SELECT from code_files, calculate cosine similarity `1 - (summary_embedding <=> query_embedding)`, WHERE similarity > SIMILARITY_THRESHOLD (0.70), ORDER BY similarity DESC, LIMIT max_files (default 15)
+- [ ] Return relevant files: file_path, file_summary, language, line_count, imports[], exports[], similarity score
 - [ ] Rank files by relevance (descending)
+- [ ] Output: RelevantFile{file_path, file_summary, language, line_count, imports, exports, similarity}
 
 ### 3. Stage 2: Chunk-Level Retrieval
 
-- [ ] Create `src/retrieval/chunk-retrieval.ts`
-- [ ] Implement SQL query:
-  - [ ] SELECT from `code_chunks`
-  - [ ] WHERE file_path IN (top files from Stage 1)
-  - [ ] AND similarity > `SIMILARITY_THRESHOLD` (0.75, higher than Stage 1)
-  - [ ] AND chunk_type != 'file_summary'
-  - [ ] ORDER BY similarity DESC
-  - [ ] LIMIT 100 (before deduplication)
-- [ ] Return relevant chunks with metadata:
-  - [ ] chunk_id
-  - [ ] file_path
-  - [ ] chunk_content
-  - [ ] chunk_type
-  - [ ] start_line, end_line
-  - [ ] token_count
-  - [ ] metadata
-  - [ ] similarity score
+- [ ] Create `src/retrieval/chunk-retrieval.ts` for precise chunk search
+- [ ] Implement SQL query: SELECT from code_chunks, WHERE file_path IN (top files from Stage 1), AND similarity > 0.75 (higher than Stage 1), AND chunk_type != 'file_summary', ORDER BY similarity DESC, LIMIT 100 (before deduplication)
+- [ ] Return relevant chunks: chunk_id, file_path, chunk_content, chunk_type, start_line, end_line, token_count, metadata, similarity score
 - [ ] Rank chunks by relevance
+- [ ] Output: RelevantChunk{chunk_id, file_path, chunk_content, chunk_type, start_line, end_line, token_count, metadata, similarity}
 
 ### 4. Stage 3: Symbol Resolution
 
-- [ ] Create `src/retrieval/symbol-resolver.ts`
-- [ ] Extract symbols from chunk metadata:
-  - [ ] Dependencies (imported/used symbols)
-  - [ ] Function names
-  - [ ] Class names
-- [ ] Implement SQL query:
-  - [ ] SELECT from `code_symbols`
-  - [ ] WHERE symbol_name IN (extracted symbols)
-  - [ ] AND scope = 'exported'
-  - [ ] ORDER BY symbol_name
-- [ ] Return resolved symbols:
-  - [ ] symbol_name
-  - [ ] symbol_type
-  - [ ] file_path
-  - [ ] line_number
-  - [ ] definition
-  - [ ] scope
+- [ ] Create `src/retrieval/symbol-resolver.ts` for dependency resolution
+- [ ] Extract symbols from chunk metadata: dependencies (imported/used symbols), function names, class names
+- [ ] Implement SQL query: SELECT from code_symbols, WHERE symbol_name IN (extracted symbols), AND scope = 'exported', ORDER BY symbol_name
+- [ ] Return resolved symbols: symbol_name, symbol_type, file_path, line_number, definition, scope
+- [ ] Output: ResolvedSymbol{symbol_name, symbol_type, file_path, line_number, definition, scope}
 
 ### 5. Stage 4: Import Chain Expansion
 
-- [ ] Create `src/retrieval/import-expander.ts`
-- [ ] Select top N files (N=5-10) from Stage 1
-- [ ] For each file:
-  - [ ] Extract imports from `code_files.imports`
-  - [ ] Filter to internal imports (in indexed repo)
-  - [ ] Fetch file summary for each import
-  - [ ] Track visited files (prevent circular imports)
-- [ ] Traverse imports recursively:
-  - [ ] Depth 1: Direct imports
-  - [ ] Depth 2: Second-order imports
-  - [ ] Depth 3: Third-order imports (stop here)
-- [ ] Detect circular imports:
-  - [ ] Use Set to track visited files
-  - [ ] Skip if already visited
-  - [ ] Mark as circular in metadata
-- [ ] Mark truncated chains:
-  - [ ] Depth limit reached (>3)
-  - [ ] External dependency (not in repo)
-- [ ] Return import chains:
-  - [ ] file_path
-  - [ ] imported_from (parent file)
-  - [ ] depth (0-3)
-  - [ ] file_summary
-  - [ ] exports
-  - [ ] circular flag
-  - [ ] truncated flag
+- [ ] Create `src/retrieval/import-expander.ts` for dependency graph building
+- [ ] Select top N files (N=5-10) from Stage 1 for import expansion
+- [ ] Traverse imports recursively: depth 1 (direct imports), depth 2 (second-order), depth 3 (third-order, stop here)
+- [ ] For each file: extract imports from code_files.imports, filter to internal imports (in indexed repo), fetch file summary, track visited files
+- [ ] Detect circular imports: use Set for visited files, skip if already visited, mark as circular in metadata
+- [ ] Mark truncated chains: depth limit reached (>3), external dependency (not in repo)
+- [ ] Output: ImportChain{file_path, imported_from (parent), depth (0-3), file_summary, exports[], circular flag, truncated flag}
 
 ### 6. Stage 5: Deduplication
 
-- [ ] Create `src/retrieval/deduplicator.ts`
+- [ ] Create `src/retrieval/deduplicator.ts` for similarity-based dedup
 - [ ] Sort chunks by similarity score (descending)
-- [ ] For each chunk (highest to lowest):
-  - [ ] Compare embedding to all higher-ranked chunks
-  - [ ] Calculate cosine similarity
-  - [ ] If similarity > `DEDUP_THRESHOLD` (0.92): mark as duplicate
-  - [ ] Track reference to kept chunk
-- [ ] Filter out duplicates
-- [ ] Return deduplicated chunks (typically 25-35)
-- [ ] Track duplicate count
+- [ ] For each chunk: compare embedding to all higher-ranked chunks, calculate cosine similarity, if similarity > DEDUP_THRESHOLD (0.92): mark as duplicate, track reference to kept chunk
+- [ ] Filter out duplicates, return deduplicated chunks (typically 25-35 from 100)
+- [ ] Track duplicate count and mapping
+- [ ] Output: DeduplicationResult{unique_chunks[], duplicates_removed count, duplicate_map (duplicate_id -> kept_id)}
 
 ### 7. Context Assembly
 
-- [ ] Create `src/retrieval/context-assembler.ts`
-- [ ] Aggregate results from all 5 stages:
-  - [ ] Relevant files (Stage 1)
-  - [ ] Relevant chunks (Stage 2, after dedup)
-  - [ ] Resolved symbols (Stage 3)
-  - [ ] Import chains (Stage 4)
-- [ ] Count total tokens:
-  - [ ] Sum chunk.token_count
-  - [ ] Add symbols (~50 tokens each)
-  - [ ] Add imports (~30 tokens each)
-- [ ] Generate warning if > 100k tokens:
-  - [ ] type: 'context_size'
-  - [ ] severity: 'warning'
-  - [ ] message: "Context size: X tokens (exceeds 100k)"
-  - [ ] suggestion: "Consider narrowing query"
-- [ ] Build SearchResult structure:
-  - [ ] query
-  - [ ] query_type
-  - [ ] warnings[]
-  - [ ] metadata (token count, file count, dedup count, query time)
-  - [ ] context (files, chunks, symbols, imports)
+- [ ] Create `src/retrieval/context-assembler.ts` for result aggregation
+- [ ] Aggregate all 5 stages: relevant files (Stage 1), relevant chunks (Stage 2, after dedup), resolved symbols (Stage 3), import chains (Stage 4)
+- [ ] Count total tokens: sum chunk.token_count + symbols (~50 tokens each) + imports (~30 tokens each)
+- [ ] Generate warning if >100k tokens: type 'context_size', severity 'warning', message "Context size: X tokens (exceeds 100k)", suggestion "Consider narrowing query or reducing max_snippets"
+- [ ] Build SearchResult: query, query_type, warnings[], metadata (total_tokens, files_retrieved, chunks_retrieved, chunks_after_dedup, chunks_deduplicated, symbols_resolved, import_depth_reached, query_time_ms), context (relevant_files[], code_locations[], symbols[], imports[])
+- [ ] Output: SearchResult{query, query_type, warnings, metadata, context}
 
 ### 8. Search Orchestrator
 
-- [ ] Create `src/retrieval/search.ts`
-- [ ] Implement `searchCodebase(query, options)` function
-- [ ] Coordinate all 5 stages:
-  1. [ ] Generate query embedding
-  2. [ ] Retrieve relevant files (Stage 1)
-  3. [ ] Retrieve relevant chunks (Stage 2)
-  4. [ ] Resolve symbols (Stage 3)
-  5. [ ] Expand imports (Stage 4)
-  6. [ ] Deduplicate chunks (Stage 5)
-  7. [ ] Assemble context
-- [ ] Track query execution time
-- [ ] Return SearchResult
+- [ ] Create `src/retrieval/search.ts` with main search function
+- [ ] Implement `searchCodebase(query, options)`: coordinate all 5 stages sequentially, track query execution time, return SearchResult
+- [ ] Support options: max_files (15), max_snippets (25), include_imports (true), import_depth (3), dedup_threshold (0.92), similarity_threshold (0.75)
 
 ---
 
 ## Success Criteria
 
-**Phase 4 is complete when ALL items below are checked:**
+Phase 4 is complete when:
 
-- [ ] Query embedding generated from user input
-- [ ] Stage 1 retrieves top 15 relevant files
-- [ ] Files ranked by cosine similarity (descending)
-- [ ] Similarity threshold filters low-quality results
-- [ ] Stage 2 retrieves chunks from top files only
-- [ ] Higher threshold in Stage 2 (0.75 vs 0.70)
-- [ ] Chunks ranked by similarity
-- [ ] Stage 3 resolves symbols from chunk metadata
-- [ ] Symbol definitions fetched from code_symbols
+- [ ] Query embedding generated correctly from user input
+- [ ] Stage 1 retrieves top 15 relevant files ranked by cosine similarity
+- [ ] Similarity threshold (0.70) filters low-quality results
+- [ ] Stage 2 retrieves chunks from top files only with higher threshold (0.75)
+- [ ] Chunks ranked by similarity with correct metadata
+- [ ] Stage 3 resolves symbols from chunk dependencies
+- [ ] Symbol definitions fetched from code_symbols table
 - [ ] Stage 4 expands import chains to depth 3
-- [ ] Circular imports detected and marked
-- [ ] External dependencies marked (not expanded)
+- [ ] Circular imports detected and marked (no infinite loops)
+- [ ] External dependencies marked as truncated (not expanded)
 - [ ] Stage 5 deduplicates similar chunks (threshold 0.92)
-- [ ] Highest-scoring duplicates kept
-- [ ] Duplicate count tracked in metadata
+- [ ] Highest-scoring duplicates kept, count tracked
 - [ ] Token counting accurate across all components
-- [ ] Warning generated when tokens >100k
-- [ ] Context assembled in structured format
-- [ ] Query time <800ms for typical query
+- [ ] Warning generated when context exceeds 100k tokens
+- [ ] Context assembled in structured SearchResult format
+- [ ] Query time <800ms for typical query (accuracy mode)
 - [ ] End-to-end search returns relevant results
-- [ ] All unit tests passing
-- [ ] All integration tests passing
+- [ ] All unit and integration tests passing
 
 ---
 
 ## Dependencies
 
 - [ ] Phase 1 complete (database client, config)
-- [ ] Phase 3 complete (indexed database with embeddings)
+- [ ] Phase 3 complete (indexed database with embeddings in all 3 tables)
 
 ---
 
 ## Output Artifacts
 
-- [ ] `src/retrieval/query-processor.ts` - Query processing
-- [ ] `src/retrieval/file-retrieval.ts` - File-level search
-- [ ] `src/retrieval/chunk-retrieval.ts` - Chunk-level search
-- [ ] `src/retrieval/symbol-resolver.ts` - Symbol resolution
-- [ ] `src/retrieval/import-expander.ts` - Import expansion
-- [ ] `src/retrieval/deduplicator.ts` - Deduplication
-- [ ] `src/retrieval/context-assembler.ts` - Context assembly
-- [ ] `src/retrieval/search.ts` - Search orchestrator
-- [ ] `tests/unit/retrieval/` - Unit tests
-- [ ] `tests/integration/` - Integration tests
+- `src/retrieval/query-processor.ts` - Query embedding generation
+- `src/retrieval/file-retrieval.ts` - Stage 1: File-level search
+- `src/retrieval/chunk-retrieval.ts` - Stage 2: Chunk-level search
+- `src/retrieval/symbol-resolver.ts` - Stage 3: Symbol resolution
+- `src/retrieval/import-expander.ts` - Stage 4: Import chain expansion
+- `src/retrieval/deduplicator.ts` - Stage 5: Deduplication
+- `src/retrieval/context-assembler.ts` - Context assembly with token counting
+- `src/retrieval/search.ts` - Search orchestrator (main entry point)
+- `tests/unit/retrieval/` - Unit tests for each stage
+- `tests/integration/` - End-to-end search tests
 
 ---
 
 ## Next Phase
 
-**Phase 5 wraps retrieval in MCP server:**
-
-- MCP tool implementations
-- Claude Code integration
-- Context formatting for Claude
+**Phase 5: MCP Server & Tools**
+- MCP server framework setup
+- 4 core tools (search_codebase, get_file_context, find_symbol_definition, index_repository)
+- Context formatting for Claude (Markdown)
+- Input validation and error handling
 
 **✅ Phase 4 must be 100% complete before starting Phase 5.**

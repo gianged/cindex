@@ -15,214 +15,116 @@ This delivers 4 core MCP tools, context formatting, error handling, and a produc
 
 ### 1. MCP Server Framework
 
-- [ ] Create `src/index.ts` as MCP server entry point
-- [ ] Import `@modelcontextprotocol/sdk`
-- [ ] Initialize MCP Server:
-  - [ ] name: 'cindex'
-  - [ ] version: '1.0.0'
-  - [ ] capabilities: tools
-- [ ] Set up StdioServerTransport
-- [ ] Connect server to transport
-- [ ] Handle server lifecycle:
-  - [ ] Start: Initialize database, validate config
-  - [ ] Runtime: Handle tool requests
-  - [ ] Shutdown: Close connections, cleanup
+- [ ] Create `src/index.ts` as MCP server entry point: import @modelcontextprotocol/sdk, initialize
+      Server (name: 'cindex', version: '1.0.0', capabilities: tools), set up StdioServerTransport,
+      connect server
+- [ ] Handle lifecycle: start (initialize database, validate config), runtime (handle tool
+      requests), shutdown (close connections, cleanup)
 
-### 2. Tool 1: `search_codebase`
+### 2. Tool Implementations
 
-- [ ] Create `src/mcp/search-codebase.ts`
-- [ ] Define input schema:
-  - [ ] query (string, required)
-  - [ ] max_files (number, default: 15)
-  - [ ] max_snippets (number, default: 25)
-  - [ ] include_imports (boolean, default: true)
-  - [ ] import_depth (number, default: 3, max: 3)
-  - [ ] dedup_threshold (number, default: 0.92)
-  - [ ] similarity_threshold (number, default: 0.75)
-- [ ] Implement tool handler:
-  - [ ] Call `searchCodebase(query, options)`
-  - [ ] Format result as Markdown
-  - [ ] Return as MCP response
-- [ ] Register tool with MCP server
+- [ ] Create `src/mcp/search-codebase.ts`: input schema (query required, max_files 15, max_snippets
+      25, include_imports true, import_depth 3, dedup_threshold 0.92, similarity_threshold 0.75),
+      call searchCodebase(), format as Markdown, return MCP response
+- [ ] Create `src/mcp/get-file-context.ts`: input schema (file_path required, include_callers true,
+      include_callees true, import_depth 2), fetch file metadata + chunks + callers + callees,
+      expand imports, format as Markdown
+- [ ] Create `src/mcp/find-symbol.ts`: input schema (symbol_name required, include_usages false,
+      scope_filter all|exported|internal), search code_symbols by name, filter by scope, rank
+      exported first, optionally find usages, format as Markdown
+- [ ] Create `src/mcp/index-repository.ts`: input schema (repo_path required, incremental true,
+      languages[], include_markdown false, respect_gitignore true, max_file_size 5000,
+      summary_method llm|rule-based), call indexRepository(), stream progress via MCP notifications,
+      format statistics as Markdown
+- [ ] Register all 4 tools with MCP server
 
-### 3. Tool 2: `get_file_context`
+### 3. Context Formatting
 
-- [ ] Create `src/mcp/get-file-context.ts`
-- [ ] Define input schema:
-  - [ ] file_path (string, required)
-  - [ ] include_callers (boolean, default: true)
-  - [ ] include_callees (boolean, default: true)
-  - [ ] import_depth (number, default: 2, max: 3)
-- [ ] Implement tool handler:
-  - [ ] Fetch file metadata
-  - [ ] Fetch all chunks for file
-  - [ ] Find callers (files importing this file)
-  - [ ] Find callees (files this file imports)
-  - [ ] Expand imports to specified depth
-  - [ ] Format result as Markdown
-- [ ] Register tool with MCP server
+- [ ] Create `src/mcp/formatter.ts` with Markdown formatters for all tool outputs
+- [ ] Formatting rules: file paths (backticks + bold), code blocks (specify language for syntax
+      highlighting), warnings (⚠️ **Warning**), sections (##/###/####), metadata (compact,
+      readable), include token counts, display warnings prominently
+- [ ] Implement formatters: search results, file context, symbol definitions, indexing statistics
 
-### 4. Tool 3: `find_symbol_definition`
+### 4. Input Validation & Error Handling
 
-- [ ] Create `src/mcp/find-symbol.ts`
-- [ ] Define input schema:
-  - [ ] symbol_name (string, required)
-  - [ ] include_usages (boolean, default: false)
-  - [ ] scope_filter (enum: all/exported/internal, default: all)
-- [ ] Implement tool handler:
-  - [ ] Search code_symbols table by name
-  - [ ] Filter by scope if specified
-  - [ ] Rank by exported first
-  - [ ] Optionally find usages
-  - [ ] Format result as Markdown
-- [ ] Register tool with MCP server
+- [ ] Create `src/mcp/validator.ts`: validate required parameters, validate types, validate ranges
+      (max_files 1-50, max_snippets 1-100, import_depth 1-3, thresholds 0.0-1.0), return clear error
+      messages
+- [ ] Create `src/mcp/errors.ts`: define error types (ValidationError, DatabaseError, OllamaError,
+      FileNotFoundError), add user-friendly messages, include resolution suggestions, log for
+      debugging
 
-### 5. Tool 4: `index_repository`
+### 5. Testing & Integration
 
-- [ ] Create `src/mcp/index-repository.ts`
-- [ ] Define input schema:
-  - [ ] repo_path (string, required)
-  - [ ] incremental (boolean, default: true)
-  - [ ] languages (array, default: [])
-  - [ ] include_markdown (boolean, default: false)
-  - [ ] respect_gitignore (boolean, default: true)
-  - [ ] max_file_size (number, default: 5000)
-  - [ ] summary_method (enum: llm/rule-based, default: llm)
-- [ ] Implement tool handler:
-  - [ ] Call `indexRepository(repo_path, options)`
-  - [ ] Stream progress notifications via MCP
-  - [ ] Format statistics as Markdown
-  - [ ] Return summary on completion
-- [ ] Register tool with MCP server
-
-### 6. Context Formatting
-
-- [ ] Create `src/mcp/formatter.ts`
-- [ ] Implement Markdown formatters:
-  - [ ] Format search results
-  - [ ] Format file context
-  - [ ] Format symbol definitions
-  - [ ] Format indexing statistics
-- [ ] Formatting guidelines:
-  - [ ] File paths: backticks + bold (\`**path**\`)
-  - [ ] Code blocks: specify language
-  - [ ] Warnings: emoji + bold (⚠️ **Warning**)
-  - [ ] Sections: clear hierarchy (##, ###, ####)
-  - [ ] Metadata: compact, readable
-- [ ] Add syntax highlighting to code blocks
-- [ ] Include token counts
-- [ ] Display warnings prominently
-
-### 7. Input Validation
-
-- [ ] Create `src/mcp/validator.ts`
-- [ ] Validate required parameters
-- [ ] Validate parameter types
-- [ ] Validate parameter ranges:
-  - [ ] max_files: 1-50
-  - [ ] max_snippets: 1-100
-  - [ ] import_depth: 1-3
-  - [ ] thresholds: 0.0-1.0
-- [ ] Return clear error messages
-
-### 8. Error Handling
-
-- [ ] Create `src/mcp/errors.ts`
-- [ ] Define error types:
-  - [ ] ValidationError
-  - [ ] DatabaseError
-  - [ ] OllamaError
-  - [ ] FileNotFoundError
-- [ ] Add user-friendly error messages
-- [ ] Include suggestions for resolution
-- [ ] Log errors for debugging
-
-### 9. Testing & Integration
-
-#### Unit Tests
-
-- [ ] Test input validation for all tools
-- [ ] Test context formatting
-- [ ] Test error handling
-- [ ] Test Markdown generation
-
-#### Integration Tests
-
-- [ ] Test MCP server lifecycle (start, tool call, shutdown)
-- [ ] Test all 4 tools end-to-end
-- [ ] Test error scenarios
-
-#### Claude Code Integration
-
-- [ ] Create MCP config example: `docs/mcp-config-examples.json`
-- [ ] Document user scope config (~/.claude.json)
-- [ ] Document project scope config (.mcp.json)
-- [ ] Test with Claude Code:
-  - [ ] Configure MCP server
-  - [ ] Verify tools appear in Claude
-  - [ ] Execute test queries
-  - [ ] Verify formatted output
+- [ ] Unit tests: input validation for all tools, context formatting, error handling, Markdown
+      generation
+- [ ] Integration tests: MCP server lifecycle (start/tool call/shutdown), all 4 tools end-to-end,
+      error scenarios
+- [ ] Create `docs/mcp-config-examples.json`: user scope (~/.claude.json), project scope (.mcp.json)
+      with examples
+- [ ] Test with Claude Code: configure MCP server, verify tools appear, execute test queries, verify
+      formatted output
 
 ---
 
 ## Success Criteria
 
-**Phase 5 is complete when ALL items below are checked:**
+Phase 5 is complete when:
 
-- [ ] MCP server starts and connects via stdio
-- [ ] All 4 tools registered and listed
-- [ ] `search_codebase` returns formatted context
-- [ ] `get_file_context` returns complete file context
-- [ ] `find_symbol_definition` locates symbols correctly
-- [ ] `index_repository` indexes codebase with progress
-- [ ] Input validation catches invalid parameters
-- [ ] Error messages are user-friendly
-- [ ] Context formatted in Markdown for Claude
-- [ ] Code blocks have syntax highlighting
-- [ ] Warnings displayed for large contexts
-- [ ] Token counts visible in outputs
-- [ ] Progress updates stream during indexing
+- [ ] MCP server starts and connects via stdio without errors
+- [ ] All 4 tools registered and listed in Claude Code
+- [ ] `search_codebase` returns formatted context with files, chunks, symbols, imports
+- [ ] `get_file_context` returns complete file context with callers/callees
+- [ ] `find_symbol_definition` locates symbols and optionally shows usages
+- [ ] `index_repository` indexes codebase with real-time progress updates
+- [ ] Input validation catches all invalid parameters with clear messages
+- [ ] Error messages are user-friendly with actionable suggestions
+- [ ] All outputs formatted in Markdown with syntax highlighting
+- [ ] Warnings displayed prominently for large contexts (>100k tokens)
+- [ ] Token counts visible in all search outputs
+- [ ] Progress updates stream during indexing via MCP notifications
 - [ ] Server logs to stderr for debugging
-- [ ] Graceful shutdown closes connections
+- [ ] Graceful shutdown closes all connections
 - [ ] Integration with Claude Code works end-to-end
-- [ ] All unit tests passing
-- [ ] All integration tests passing
+- [ ] All unit and integration tests passing
 
 ---
 
 ## Dependencies
 
 - [ ] Phase 1 complete (config, database, logger)
-- [ ] Phase 4 complete (search orchestrator)
-- [ ] Phase 3 complete (indexing orchestrator)
-- [ ] `@modelcontextprotocol/sdk` installed
+- [ ] Phase 4 complete (search orchestrator: searchCodebase function)
+- [ ] Phase 3 complete (indexing orchestrator: indexRepository function)
+- [ ] @modelcontextprotocol/sdk installed
 
 ---
 
 ## Output Artifacts
 
-- [ ] `src/index.ts` - MCP server entry point
-- [ ] `src/mcp/search-codebase.ts` - Search tool
-- [ ] `src/mcp/get-file-context.ts` - File context tool
-- [ ] `src/mcp/find-symbol.ts` - Symbol lookup tool
-- [ ] `src/mcp/index-repository.ts` - Indexing tool
-- [ ] `src/mcp/formatter.ts` - Markdown formatter
-- [ ] `src/mcp/validator.ts` - Input validator
-- [ ] `src/mcp/errors.ts` - Error types
-- [ ] `tests/unit/mcp/` - Unit tests
-- [ ] `tests/integration/` - Integration tests
-- [ ] `docs/mcp-config-examples.json` - MCP config examples
-- [ ] README.md updated with MCP setup instructions
+- `src/index.ts` - MCP server entry point with lifecycle management
+- `src/mcp/search-codebase.ts` - Search tool implementation
+- `src/mcp/get-file-context.ts` - File context tool implementation
+- `src/mcp/find-symbol.ts` - Symbol lookup tool implementation
+- `src/mcp/index-repository.ts` - Indexing tool implementation
+- `src/mcp/formatter.ts` - Markdown formatting for all outputs
+- `src/mcp/validator.ts` - Input validation logic
+- `src/mcp/errors.ts` - Error types and messages
+- `tests/unit/mcp/` - Unit tests
+- `tests/integration/` - Integration tests
+- `docs/mcp-config-examples.json` - MCP configuration examples
+- README.md - MCP setup instructions
 
 ---
 
 ## Next Phase
 
-**Phase 6 optimizes for production:**
+**Phase 6: Optimization & Production Readiness**
 
-- Incremental indexing
-- HNSW index optimization
-- Query caching
-- Edge case handling
+- Incremental indexing with hash comparison
+- HNSW index optimization (upgrade from IVFFlat)
+- Query caching (embeddings + results)
+- Edge case handling (circular imports, encoding, permissions)
+- Comprehensive testing (scale, stress, accuracy)
 
 **✅ Phase 5 must be 100% complete before starting Phase 6.**
