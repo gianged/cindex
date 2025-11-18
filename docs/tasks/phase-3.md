@@ -56,12 +56,26 @@ the embedding pipeline via Ollama, LLM-based summary generation, and database pe
 - [ ] Implement `insertChunks()`: batch INSERT into code_chunks (ON CONFLICT DO NOTHING to prevent
       duplicates)
 - [ ] Implement `insertSymbols()`: batch INSERT into code_symbols (ON CONFLICT DO NOTHING)
+- [ ] **[MONOREPO]** Implement `insertWorkspaces()`: batch INSERT into workspaces table with
+      package_name, workspace_path, dependencies, tsconfig_paths
+- [ ] **[MONOREPO]** Implement `insertWorkspaceAliases()`: batch INSERT into workspace_aliases for
+      import resolution (@workspace/* → filesystem paths)
+- [ ] **[MONOREPO]** Implement `insertWorkspaceDependencies()`: INSERT workspace dependency graph
+      from package.json dependencies
+- [ ] **[MICROSERVICE]** Implement `insertServices()`: batch INSERT into services table with
+      service_name, service_type, api_endpoints, dependencies
+- [ ] **[MULTI-REPO]** Implement `insertRepository()`: INSERT into repositories table with repo_type,
+      workspace_config, workspace_patterns
+- [ ] **[MULTI-REPO]** Implement `insertCrossRepoDependencies()`: INSERT cross-repo dependencies for
+      microservice architectures
+- [ ] **[MONOREPO/MICROSERVICE]** Tag all chunks/files/symbols with workspace_id, package_name,
+      service_id, repo_id during insertion
 - [ ] Optimize batch inserts: collect 100 chunks before inserting, use PostgreSQL COPY for bulk
       inserts, transaction per batch (commit every 100 chunks), rollback batch on error
 - [ ] Handle errors: catch unique constraints, vector dimension mismatches, foreign key violations,
       log with context, continue processing
-- [ ] Test: file insertion, chunk batch insertion, symbol insertion, upsert on duplicate file,
-      transaction rollback
+- [ ] Test: file insertion, chunk batch insertion, symbol insertion, workspace/service insertion,
+      upsert on duplicate file, transaction rollback
 
 ### 4. Symbol Extraction & Indexing
 
@@ -92,6 +106,45 @@ the embedding pipeline via Ollama, LLM-based summary generation, and database pe
       chunks_embedded, symbols_extracted, total_time_ms, avg_file_time_ms, summaries_llm,
       summaries_fallback, errors[]}
 
+### 6. API Contract Parsing (Multi-Project)
+
+- [ ] Create `src/indexing/api-parser.ts` for API contract extraction
+- [ ] **[REST/OpenAPI]** Parse OpenAPI/Swagger files: detect openapi.json, openapi.yaml, swagger.json,
+      swagger.yaml in repo root or docs/, parse using openapi-types or swagger-parser library
+- [ ] **[REST/OpenAPI]** Extract per-endpoint data: endpoint_path, http_method (GET/POST/PUT/DELETE),
+      operation_id, summary, description, tags[], request_schema (JSONB from requestBody),
+      response_schema (JSONB from responses[200]), deprecated flag
+- [ ] **[REST/OpenAPI]** Link to implementation: scan code_chunks for route definitions (e.g.,
+      `router.get('/api/users')`, `@GetMapping("/users")`), store implementation_file,
+      implementation_lines, implementation_chunk_id, implementation_function
+- [ ] **[GraphQL]** Parse GraphQL schema files: detect schema.graphql, *.graphql, *.gql files, parse
+      using graphql library (buildSchema)
+- [ ] **[GraphQL]** Extract operations: queries (api_type='graphql_query'), mutations
+      (api_type='graphql_mutation'), subscriptions (api_type='graphql_subscription'), extract
+      operation_id (field name), args (request_schema JSONB), return type (response_schema JSONB),
+      description from docstrings
+- [ ] **[GraphQL]** Link to resolvers: scan code_chunks for resolver implementations (e.g.,
+      `Query.users`, `Mutation.createUser`), match to schema fields
+- [ ] **[gRPC]** Parse proto files: detect *.proto files, parse using protobufjs library (parse method)
+- [ ] **[gRPC]** Extract RPC methods: service_name.method_name as endpoint_path, extract request_schema
+      (message definition JSONB), response_schema (message JSONB), extract comments as description
+- [ ] **[gRPC]** Link to handlers: scan code_chunks for gRPC service implementations (e.g., class
+      UserServiceImpl, handlers matching RPC names)
+- [ ] Generate API contract summaries: for each service, aggregate all endpoints into
+      services.api_endpoints JSONB array: [{type, path, method, summary}]
+- [ ] Generate service-level API embedding: concatenate all endpoint summaries, generate 1024-dim
+      embedding, store in services.api_embedding column
+- [ ] Generate per-endpoint embeddings: for each endpoint, build text "API: {type} {path} {method} -
+      {summary} | Request: {schema} | Response: {schema}", generate embedding, store in
+      api_endpoints.embedding
+- [ ] Detect cross-service dependencies: scan code for HTTP client calls (fetch, axios, http.request),
+      GraphQL query strings, gRPC client instantiations, match to api_endpoints, build
+      cross_service_calls map
+- [ ] Test: OpenAPI parsing, GraphQL parsing, gRPC proto parsing, endpoint-to-implementation linking,
+      API embedding generation, cross-service detection
+- [ ] Output: APIContract{service_id, api_type, endpoints[], service_embedding (1024 dims),
+      endpoint_embeddings[], cross_service_calls[], parsing_errors[]}
+
 ---
 
 ## Success Criteria
@@ -112,9 +165,17 @@ Phase 3 is complete when:
 - [ ] Duplicate files handled with upsert
 - [ ] Symbol extraction works for functions, classes, variables
 - [ ] Symbol scope (exported/internal) detected correctly
+- [ ] **[API Contracts]** OpenAPI/Swagger files parsed and endpoints extracted
+- [ ] **[API Contracts]** GraphQL schemas parsed with queries/mutations/subscriptions
+- [ ] **[API Contracts]** gRPC proto files parsed with RPC methods extracted
+- [ ] **[API Contracts]** API endpoints linked to implementation chunks
+- [ ] **[API Contracts]** Service-level API embeddings generated (services.api_embedding)
+- [ ] **[API Contracts]** Per-endpoint embeddings stored in api_endpoints table
+- [ ] **[API Contracts]** Cross-service API calls detected and stored
+- [ ] **[API Contracts]** All tables populated: services, api_endpoints, cross_repo_dependencies
 - [ ] Indexing statistics logged on completion
 - [ ] Errors logged but don't halt entire process
-- [ ] End-to-end indexing works on test repository
+- [ ] End-to-end indexing works on test repository (with and without API contracts)
 - [ ] All unit and integration tests passing
 
 ---
@@ -131,22 +192,26 @@ Phase 3 is complete when:
 
 - `src/indexing/summary.ts` - LLM-based + rule-based summary generation
 - `src/indexing/embeddings.ts` - Embedding generation with enhanced text
-- `src/database/writer.ts` - Database persistence with batch optimization
+- `src/database/writer.ts` - Database persistence with batch optimization + workspace/service tables
 - `src/indexing/symbols.ts` - Symbol extraction and embedding
 - `src/utils/progress.ts` - Progress tracking and statistics
+- `src/indexing/api-parser.ts` - API contract parsing (REST/GraphQL/gRPC)
 - `src/indexing/orchestrator.ts` - Pipeline coordinator (combines all stages)
-- `tests/unit/indexing/` - Unit tests
-- `tests/integration/` - Integration tests (end-to-end indexing)
+- **[MONOREPO/MICROSERVICE]** Enhanced database writer with workspace/service persistence functions
+- **[MULTI-PROJECT]** API contract parsers for OpenAPI, GraphQL, gRPC
+- `tests/unit/indexing/` - Unit tests (including API parsing tests)
+- `tests/integration/` - Integration tests (end-to-end indexing + monorepo/microservice + API contracts)
 
 ---
 
 ## Next Phase
 
-**Phase 4: Multi-Stage Retrieval System**
+**Phase 4: Multi-Stage Retrieval System (7-Stage Pipeline)**
 
-- Vector similarity search (5-stage pipeline)
+- Vector similarity search (7-stage pipeline)
+- Scope filtering (multi-project)
 - Query embedding generation
-- File-level → chunk-level → symbol → import chain → deduplication
+- File-level → chunk-level → symbol → import chain → API enrichment → deduplication
 - Context assembly with token counting
 
 **✅ Phase 3 must be 100% complete before starting Phase 4.**

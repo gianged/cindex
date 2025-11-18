@@ -30,6 +30,7 @@
     "name": "gianged",
     "email": "giangeddev@gmail.com"
   },
+  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "cindex": "dist/index.js"
@@ -41,12 +42,16 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "node esbuild.config.js build",
+    "check-all": "npm run format:check && npm run lint && npm run type-check",
+    "dev": "node esbuild.config.js dev",
     "format": "prettier --write src/**/*.ts",
-    "lint": "eslint src/**/*.ts",
+    "format:check": "prettier --check src/**/*.ts",
+    "lint": "eslint src tests",
+    "lint:fix": "eslint src tests --fix",
     "start": "node dist/index.js",
-    "test": "jest"
+    "test": "jest",
+    "type-check": "tsc --noEmit"
   },
   "config": {
     "default_db": "cindex_rag_codebase",
@@ -68,20 +73,30 @@
     "tree-sitter-javascript": "^0.21.4",
     "tree-sitter-python": "^0.21.0",
     "tree-sitter-rust": "^0.21.0",
-    "tree-sitter-typescript": "^0.21.2"
+    "tree-sitter-typescript": "^0.21.2",
+    "uuid": "^13.0.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
+    "@jest/globals": "^30.2.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
     "@types/pg": "^8.15.6",
-    "@typescript-eslint/eslint-plugin": "^8.46.4",
-    "@typescript-eslint/parser": "^8.46.4",
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.47.0",
+    "esbuild": "^0.27.0",
     "eslint": "^9.39.1",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-n": "^17.23.1",
+    "globals": "^16.5.0",
     "jest": "^30.2.0",
     "prettier": "^3.6.2",
     "ts-jest": "^29.4.5",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.47.0"
   },
-  "optionalDependencies": {},
   "engines": {
     "node": ">=22.0.0"
   }

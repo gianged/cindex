@@ -45,14 +45,36 @@ npm start
 
 ## Architecture Overview
 
+### Multi-Project Support
+
+**cindex supports three deployment patterns:**
+
+1. **Single Repository** - Traditional RAG for one codebase (base implementation)
+2. **Multi-Project** - Index multiple independent repositories, search globally or per-repo
+3. **Monorepo/Microservices** - Support workspace packages, service boundaries, and API contracts
+
+**See `docs/overview.md` Section 1.5 for complete multi-project architecture documentation.**
+
 ### Multi-Stage Retrieval Pipeline
 
-The system uses a 4-stage retrieval approach:
+**Base Pipeline (Single Repository):** 4-stage retrieval approach:
 
 1. **File-Level Retrieval:** Find relevant files using summary embeddings
 2. **Chunk-Level Retrieval:** Locate specific code chunks (functions/classes) within files
 3. **Symbol Resolution:** Resolve imported symbols and their definitions
 4. **Import Chain Expansion:** Build dependency graph with depth limits (max 3 levels)
+
+**Enhanced Pipeline (Multi-Project):** 7-stage retrieval with additional stages:
+
+0. **Scope Filtering:** Filter by repository/service based on search scope (global, repo, service,
+   boundary-aware)
+1. **File-Level Retrieval** (with repo_id filtering)
+2. **Chunk-Level Retrieval** (with repo_id/service_id filtering)
+3. **Symbol Resolution** (cross-repository aware)
+4. **Import Chain Expansion** (cross-repository dependencies)
+5. **API Contract Enrichment:** Include REST/GraphQL/gRPC API definitions
+6. **Deduplication** (cross-repository aware)
+7. **Context Assembly** (grouped by repository with dependency relationships)
 
 ### Indexing Pipeline
 
@@ -63,12 +85,70 @@ The system uses a 4-stage retrieval approach:
 5. **Embedding:** Generate vectors via Ollama mxbai-embed-large
 6. **Storage:** PostgreSQL with pgvector extension
 
-### MCP Tools (4 Core Tools)
+### MCP Tools
+
+**Base Tools (4 Core):**
 
 - `search_codebase` - Semantic search with multi-stage retrieval
 - `get_file_context` - Full context for specific file with dependencies
 - `find_symbol_definition` - Locate function/class/variable definitions
 - `index_repository` - Index or re-index codebase (incremental by default)
+
+**Multi-Project Tools (Additional 2):**
+
+- `search_api_contracts` - Search REST/GraphQL/gRPC API definitions across services
+- `list_indexed_repos` - List all indexed repositories and their services
+
+**Multi-Project Parameters:**
+
+- `search_codebase` gains: `scope`, `repo_id`, `service_id`, `include_dependencies`,
+  `include_references`, `include_documentation`
+- `index_repository` gains: `repo_id`, `repo_type`, `service_config`, `detect_dependencies`,
+  `version`, `force_reindex`
+
+### Reference Repository Support
+
+**cindex supports indexing external frameworks and libraries for learning and reference:**
+
+**Repository Types:**
+
+1. **`monolithic`** - Standard single-application repository (your code)
+2. **`microservice`** - Individual microservice repository (your code)
+3. **`monorepo`** - Multi-package repository with workspaces (your code)
+4. **`library`** - Shared library repository (your own libraries)
+5. **`reference`** - External framework/library cloned for learning (e.g., NestJS, React)
+6. **`documentation`** - Markdown documentation files (e.g., /docs/libraries/)
+
+**Reference Repository Behavior (`repo_type = 'reference'`):**
+
+- **Lightweight indexing:** Skips workspace detection, service detection, API parsing
+- **Excluded from default search:** Won't appear unless explicitly included
+- **Lower priority:** Results prioritized below your own code (priority: 0.6 vs 1.0)
+- **No cross-linking:** Never auto-linked to your main code dependencies
+- **Version tracking:** Supports versioned re-indexing for framework updates
+
+**Documentation Repository Behavior (`repo_type = 'documentation'`):**
+
+- **Markdown-only:** Indexes markdown files, extracts code blocks
+- **Fast indexing:** No LLM summaries, very lightweight (1000 files/min)
+- **Lowest priority:** Results prioritized below all code (priority: 0.5)
+- **Sectioned chunking:** Preserves markdown structure (headings, code blocks)
+
+**Search Behavior:**
+
+- **Default search:** Excludes `reference` and `documentation` repos automatically
+- **Include references:** Use `include_references: true` to search framework code
+- **Include documentation:** Use `include_documentation: true` to search markdown docs
+- **Result grouping:** Results grouped by type (primary code, libraries, references, documentation)
+- **Context limits:** Max 5 reference results, max 3 documentation results
+
+**Version Tracking and Re-indexing:**
+
+- Store version in metadata:
+  `{ version: 'v10.3.0', upstream_url: 'https://github.com/nestjs/nest' }`
+- Automatic re-index decision when version changes
+- Use `force_reindex: true` to override version check
+- Track last_indexed timestamp for outdated detection
 
 ## Project Structure
 
@@ -78,25 +158,35 @@ src/
 ├── indexing/             # Code indexing pipeline
 │   ├── file-walker.ts    # Directory traversal with .gitignore support
 │   ├── chunker.ts        # Semantic code chunking (tree-sitter)
-│   ├── embeddings.ts     # Ollama embedding generation
-│   └── summary.ts        # LLM-based file summaries
+│   ├── parser.ts         # Tree-sitter code parsing
+│   ├── metadata.ts       # File metadata extraction
+│   ├── workspace-detector.ts  # Monorepo workspace detection
+│   ├── service-detector.ts    # Microservice detection
+│   ├── alias-resolver.ts      # Import alias resolution
+│   ├── indexing-strategy.ts   # Repository type indexing strategies
+│   ├── markdown-indexer.ts    # Markdown documentation indexing
+│   └── version-tracker.ts     # Version tracking and re-indexing
 ├── retrieval/            # Search and retrieval
-│   ├── vector-search.ts  # pgvector similarity search
-│   ├── symbol-resolver.ts # Import chain analysis
-│   └── deduplicator.ts   # Remove duplicate utility functions
+│   ├── vector-search.ts  # pgvector similarity search with scope filtering
+│   └── deduplicator.ts   # Result prioritization and deduplication
 ├── database/             # PostgreSQL client
-│   ├── client.ts         # Connection pool management
-│   └── queries.ts        # SQL queries for retrieval
-├── mcp/                  # MCP tool implementations
+│   └── client.ts         # Connection pool management
+├── mcp/                  # MCP tool implementations (future)
 │   ├── search-codebase.ts
 │   ├── get-file-context.ts
 │   ├── find-symbol.ts
 │   └── index-repository.ts
 ├── types/                # TypeScript type definitions
+│   ├── database.ts       # Database schema types
+│   ├── config.ts         # Configuration types
+│   ├── workspace.ts      # Workspace detection types
+│   ├── service.ts        # Service detection types
+│   ├── indexing.ts       # Indexing pipeline types
+│   └── mcp-tools.ts      # MCP tool types
 ├── utils/                # Shared utilities
-│   ├── tree-sitter.ts    # Code parsing helpers
 │   ├── ollama.ts         # Ollama API client
-│   └── logger.ts         # Logging utilities
+│   ├── logger.ts         # Logging utilities
+│   └── errors.ts         # Error handling
 └── config/               # Configuration
     └── env.ts            # Environment variable handling
 
@@ -110,11 +200,33 @@ tests/
 
 ## Database Schema (database.sql)
 
+### Base Tables (Single Repository)
+
 Three main tables with vector indexes:
 
 - **`code_chunks`:** Core embeddings for code chunks (functions, classes, blocks)
 - **`code_files`:** File-level metadata with summaries and SHA256 hashes
 - **`code_symbols`:** Symbol registry for function/class/variable lookups
+
+### Multi-Project Tables (Extension)
+
+Additional tables for multi-project/monorepo/microservice support:
+
+- **`repositories`:** Multi-repository registry (repo_id, repo_type, workspace_config)
+- **`services`:** Service registry with API contracts (service_id, service_type, api_endpoints
+  JSONB)
+- **`workspaces`:** Monorepo package/workspace tracking (workspace_id, package_name, tsconfig_paths)
+- **`workspace_aliases`:** Import alias resolution (@workspace/pkg → filesystem path)
+- **`cross_repo_dependencies`:** Cross-service dependency tracking (source→target, api_contracts)
+- **`workspace_dependencies`:** Internal monorepo dependencies
+
+**Column Extensions:** All base tables (`code_chunks`, `code_files`, `code_symbols`) have additional
+columns:
+
+- `repo_id` - Repository identifier for filtering
+- `workspace_id` - Workspace identifier (monorepos)
+- `package_name` - Package name from package.json
+- `service_id` - Service identifier (microservices)
 
 **Important:** Vector dimensions (1024) must match the embedding model. If changing
 `EMBEDDING_MODEL` in MCP config, update all `vector(1024)` declarations in database.sql.
@@ -345,6 +457,49 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b`, `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESH
 - Follow existing code patterns (arrow functions, async/await)
 - Run `npm run lint` and `npm run format` before committing
 
+### Import Conventions
+
+**IMPORTANT: Always use path aliases, never relative imports.**
+
+**Path Aliases (configured in tsconfig.json):**
+
+- `@/*` - Root src directory (use for types: `@/types/indexing`)
+- `@config/*` - Config directory
+- `@database/*` - Database directory
+- `@indexing/*` - Indexing directory
+- `@retrieval/*` - Retrieval directory
+- `@mcp/*` - MCP tools directory
+- `@types/*` - Types directory (alternative to `@/types/*`)
+- `@utils/*` - Utils directory
+
+**Type Import Style (ESLint: `consistent-type-imports` with `inline-type-imports`):**
+
+```typescript
+// ✅ Type-only imports: use 'import type'
+
+// ✅ Mixed imports: use inline 'type' keyword
+import { createDatabaseClient, type DatabaseConfig } from '@database/client';
+import type { WorkspaceConfig } from '@indexing/workspace-detector';
+// ✅ No file extensions (.ts, .js) in imports
+import { logger } from '@utils/logger'; // ✅ Correct
+import { logger } from '@utils/logger.js'; // ❌ Wrong
+import type { CindexConfig } from '@/types/config';
+import { ChunkType, NodeType, type ParseResult } from '@/types/indexing';
+
+// ❌ Never use relative imports
+import { logger } from '../utils/logger.js'; // ❌ Wrong
+
+import type { WorkspaceConfig } from './workspace-detector.js'; // ❌ Wrong
+```
+
+**Node.js built-ins: Always use `node:` protocol prefix**
+
+```typescript
+import * as fs from 'fs/promises'; // ❌ Wrong
+import * as fs from 'node:fs/promises'; // ✅ Correct
+import * as path from 'node:path'; // ✅ Correct
+```
+
 ### Database Operations
 
 - Always use parameterized queries to prevent SQL injection
@@ -424,6 +579,177 @@ After building, configure in `~/.config/claude/mcp.json`:
 - Test database queries directly in psql before implementing
 - Use small test codebases (1k-5k LoC) for faster iteration
 
+## Reference Repository Usage Examples
+
+### Example 1: Index NestJS as Reference
+
+```typescript
+// Index NestJS framework for learning patterns
+await index_repository({
+  repo_path: '/home/user/references/nestjs',
+  repo_id: 'nestjs-v10',
+  repo_type: 'reference',
+  metadata: {
+    upstream_url: 'https://github.com/nestjs/nest',
+    version: 'v10.3.0',
+    indexed_for: 'learning',
+  },
+});
+
+// Result: Fast indexing (~500 files/min)
+// - Skips workspace/service detection
+// - Includes markdown docs
+// - Structure-focused summaries
+```
+
+### Example 2: Index Markdown Documentation
+
+```typescript
+// Index library documentation markdown files
+await index_repository({
+  repo_path: '/home/user/my-project/docs/libraries',
+  repo_id: 'library-docs',
+  repo_type: 'documentation',
+});
+
+// Result: Very fast indexing (~1000 files/min)
+// - Markdown-only
+// - Preserves section structure
+// - Extracts code blocks
+```
+
+### Example 3: Search Your Code (Default)
+
+```typescript
+// Default search: excludes references and documentation
+await search_codebase({
+  query: 'authentication implementation',
+  scope: 'repository',
+  repo_id: 'my-app',
+});
+
+// Returns: Only results from your main codebase
+// - Priority 1.0 for your code
+// - No reference or documentation results
+```
+
+### Example 4: Search Including References
+
+```typescript
+// Search your code + reference frameworks
+await search_codebase({
+  query: 'how to implement guards in NestJS',
+  scope: 'global',
+  include_references: true,
+});
+
+// Returns: Your code first, then reference examples
+// - Your code: priority 1.0
+// - NestJS reference: priority 0.6
+// - Max 5 reference results
+// - Grouped by repo type
+```
+
+### Example 5: Re-index on Version Update
+
+```typescript
+// Pull latest NestJS version
+// git pull (in nestjs directory)
+
+// Re-index with new version
+await index_repository({
+  repo_path: '/home/user/references/nestjs',
+  repo_id: 'nestjs-v10',
+  repo_type: 'reference',
+  version: 'v11.0.0', // Version changed
+  force_reindex: true, // Clear old data first
+});
+
+// Result: Automatic version comparison
+// - Detects version change (v10.3.0 → v11.0.0)
+// - Clears old index data
+// - Re-indexes with new version
+```
+
+### Example 6: Mixed Workflow
+
+```typescript
+// Setup: Index your project + references + docs
+await index_repository({
+  repo_path: '/workspace/my-erp',
+  repo_id: 'my-erp',
+  repo_type: 'monolithic',
+});
+
+await index_repository({
+  repo_path: '/references/nestjs',
+  repo_id: 'nestjs-ref',
+  repo_type: 'reference',
+  metadata: { upstream_url: 'https://github.com/nestjs/nest', version: 'v10.3.0' },
+});
+
+await index_repository({
+  repo_path: '/workspace/my-erp/docs/libraries',
+  repo_id: 'lib-docs',
+  repo_type: 'documentation',
+});
+
+// Search 1: Only your code (default)
+await search_codebase({
+  query: 'user authentication',
+  scope: 'repository',
+  repo_id: 'my-erp',
+});
+// → Returns: my-erp code only
+
+// Search 2: Your code + references when learning
+await search_codebase({
+  query: 'how to implement guards',
+  scope: 'global',
+  include_references: true,
+});
+// → Returns: my-erp code (priority 1.0) + nestjs-ref (priority 0.6)
+
+// Search 3: Include documentation
+await search_codebase({
+  query: 'API usage examples',
+  scope: 'global',
+  include_documentation: true,
+});
+// → Returns: my-erp code + lib-docs markdown
+```
+
+### Example 7: List Indexed Repositories
+
+```typescript
+// Get all indexed repositories with version info
+await list_indexed_repos();
+
+// Returns:
+// [
+//   {
+//     repo_id: "my-erp",
+//     repo_type: "monolithic",
+//     file_count: 450,
+//     last_indexed: "2025-01-15T10:30:00Z"
+//   },
+//   {
+//     repo_id: "nestjs-ref",
+//     repo_type: "reference",
+//     file_count: 850,
+//     version: "v10.3.0",
+//     upstream_url: "https://github.com/nestjs/nest",
+//     last_indexed: "2025-01-10T14:20:00Z"
+//   },
+//   {
+//     repo_id: "lib-docs",
+//     repo_type: "documentation",
+//     file_count: 25,
+//     last_indexed: "2025-01-14T09:15:00Z"
+//   }
+// ]
+```
+
 ## Common Pitfalls to Avoid
 
 1. **Vector Dimension Mismatch:** Always ensure `EMBEDDING_DIMENSIONS` matches the model output
@@ -432,6 +758,253 @@ After building, configure in `~/.config/claude/mcp.json`:
 4. **Circular Imports:** Always track visited files to prevent infinite loops
 5. **Token Overflow:** Warn users early if context exceeds 100k tokens
 6. **Large Files:** Don't try to embed 10k+ line files - use structure-only indexing
+
+## Multi-Project Development Guidance
+
+When implementing features for multi-project/monorepo/microservice support:
+
+### 1. Repository ID Management
+
+**Always require `repo_id` for multi-project operations:**
+
+```typescript
+// Good: Explicit repo_id parameter
+await indexRepository({
+  repo_path: '/workspace/auth-service',
+  repo_id: 'auth-service', // REQUIRED for multi-project
+  repo_type: 'microservice',
+});
+
+// Bad: Assumes single repository
+await indexRepository({
+  repo_path: '/workspace/auth-service',
+  // Missing repo_id
+});
+```
+
+### 2. Search Scope Implementation
+
+**Implement scope filtering in Stage 0 of retrieval pipeline:**
+
+```typescript
+// Stage 0: Determine repo_id filter list
+const repoFilter = await determineSearchScope({
+  scope: "boundary-aware",
+  start_repo: "payment-service",
+  dependency_depth: 2
+});
+// Returns: ['payment-service', 'auth-service', 'notification-service']
+
+// Stage 1: Apply filter to file retrieval
+SELECT * FROM code_files
+WHERE repo_id = ANY($1)  -- Use the repo filter
+  AND 1 - (summary_embedding <=> $2) > 0.70;
+```
+
+### 3. API Contract Parsing
+
+**When adding API contract parsing:**
+
+1. **Detect API spec files during indexing:**
+   - OpenAPI/Swagger: `openapi.yaml`, `swagger.json`
+   - GraphQL: `schema.graphql`, `*.graphql`
+   - gRPC: `*.proto`
+
+2. **Parse and store in JSONB:**
+
+   ```typescript
+   const apiSpec = parseOpenAPI('./openapi.yaml');
+   await db.query(
+     `
+     UPDATE services
+     SET api_endpoints = $1
+     WHERE service_id = $2
+   `,
+     [JSON.stringify(apiSpec), serviceId]
+   );
+   ```
+
+3. **Link API definitions to implementation:**
+   ```typescript
+   // Store implementation reference in api_endpoints
+   {
+     "endpoint": "/api/auth/login",
+     "method": "POST",
+     "implementation_file": "src/controllers/auth.ts",
+     "implementation_lines": "45-67"
+   }
+   ```
+
+### 4. Cross-Service Dependency Detection
+
+**Detect service calls in code during indexing:**
+
+```typescript
+// Pattern detection examples
+const patterns = {
+  http: /fetch\(['"]https?:\/\/([^\/]+)(\/[^'"]*)['"]/g,
+  grpc: /new\s+(\w+)Client\(['"]([^:]+):(\d+)['"]/g,
+  graphql: /query:\s*gql`\s*(?:query|mutation)\s+(\w+)/g,
+};
+
+// When detected, populate cross_repo_dependencies
+await db.query(
+  `
+  INSERT INTO cross_repo_dependencies (
+    source_repo_id, target_repo_id, dependency_type, api_contracts
+  ) VALUES ($1, $2, 'api', $3)
+`,
+  [sourceRepo, targetRepo, JSON.stringify({ endpoint, method })]
+);
+```
+
+### 5. Workspace Alias Resolution (Monorepos)
+
+**When implementing monorepo support:**
+
+```typescript
+// Parse workspace config (package.json, pnpm-workspace.yaml, nx.json)
+const workspaces = parseWorkspaceConfig('./package.json');
+// Example: ["packages/*", "apps/*"]
+
+// Resolve aliases during import chain expansion
+const resolveImport = async (importPath: string, currentRepo: string) => {
+  if (importPath.startsWith('@workspace/')) {
+    // Query workspace_aliases table
+    const alias = await db.query(
+      `
+      SELECT resolved_path FROM workspace_aliases
+      WHERE repo_id = $1 AND alias_pattern = $2
+    `,
+      [currentRepo, importPath]
+    );
+    return alias.resolved_path;
+  }
+  // Handle tsconfig paths, custom aliases, etc.
+};
+```
+
+### 6. Deduplication Across Repositories
+
+**Be careful with cross-repo deduplication:**
+
+```typescript
+// Same utility in different repos may be INTENTIONAL
+// Tag duplicates instead of removing
+if (similarity > DEDUP_THRESHOLD) {
+  if (chunk1.repo_id === chunk2.repo_id) {
+    // Same repo: likely duplicate, remove lower-scoring
+    removeChunk(lowerScoringChunk);
+  } else {
+    // Different repos: may be intentional, TAG instead
+    tagChunk(chunk2, {
+      similar_to: chunk1.id,
+      similar_repo: chunk1.repo_id,
+      note: 'Similar utility exists in another repository',
+    });
+  }
+}
+```
+
+### 7. Query Context Assembly
+
+**Group results by repository with metadata:**
+
+```typescript
+const assembleContext = (chunks: Chunk[]) => {
+  const groupedByRepo = groupBy(chunks, 'repo_id');
+
+  return {
+    primary_service: {
+      repo: startRepo,
+      chunks: groupedByRepo[startRepo],
+    },
+    dependencies: otherRepos.map((repo) => ({
+      repo,
+      depth: calculateDepth(repo, startRepo),
+      relationship: describeRelationship(repo, startRepo),
+      api_contracts: getAPIContracts(repo),
+      chunks: groupedByRepo[repo],
+    })),
+  };
+};
+```
+
+### 8. Testing Multi-Project Features
+
+**Create test fixtures for multi-project scenarios:**
+
+```typescript
+// tests/fixtures/multi-project/
+// ├── auth-service/
+// │   ├── src/
+// │   └── openapi.yaml
+// ├── payment-service/
+// │   ├── src/
+// │   └── schema.graphql
+// └── shared-lib/
+//     └── src/
+
+// Test cross-repo search
+test('boundary-aware search includes dependencies', async () => {
+  await indexRepository({ repo_id: 'auth-service', ... });
+  await indexRepository({
+    repo_id: 'payment-service',
+    detect_dependencies: true,
+    dependency_repos: ['auth-service']
+  });
+
+  const results = await searchCodebase({
+    query: 'payment processing',
+    scope: 'boundary-aware',
+    start_repo: 'payment-service',
+    include_dependencies: true
+  });
+
+  expect(results.dependencies).toContainEqual(
+    expect.objectContaining({ repo: 'auth-service' })
+  );
+});
+```
+
+### 9. Database Queries Best Practices
+
+**Always use parameterized queries with repo filters:**
+
+```typescript
+// Good: Parameterized with repo filter
+const chunks = await db.query(
+  `
+  SELECT * FROM code_chunks
+  WHERE repo_id = ANY($1)
+    AND 1 - (embedding <=> $2) > $3
+  ORDER BY embedding <=> $2
+  LIMIT $4
+`,
+  [repoIds, queryEmbedding, threshold, limit]
+);
+
+// Bad: String concatenation, no repo filter
+const chunks = await db.query(`
+  SELECT * FROM code_chunks
+  WHERE 1 - (embedding <=> ${queryEmbedding}) > ${threshold}
+  LIMIT ${limit}
+`);
+```
+
+### 10. Implementation Priority for Multi-Project
+
+When implementing multi-project features, follow this order:
+
+1. **Phase 1:** Basic multi-repo indexing (repo_id column population)
+2. **Phase 2:** Repository-scoped search (scope=repository parameter)
+3. **Phase 3:** Cross-repo dependency detection (parse imports/service calls)
+4. **Phase 4:** Boundary-aware search (dependency graph traversal)
+5. **Phase 5:** API contract parsing and indexing
+6. **Phase 6:** Service-scoped search and API contract search
+7. **Phase 7:** Monorepo support (workspaces, aliases)
+
+**Key Principle:** Build incrementally. Each phase should work independently and add value.
 
 ## Additional Resources
 

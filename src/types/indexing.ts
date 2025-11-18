@@ -1,0 +1,459 @@
+/**
+ * Type definitions for Phase 2: Core Indexing Pipeline
+ *
+ * Defines interfaces and types for file discovery, parsing, chunking,
+ * and metadata extraction across single-repo, monorepo, and microservice architectures.
+ */
+
+/**
+ * Supported programming languages for code parsing and analysis
+ */
+export enum Language {
+  TypeScript = 'typescript',
+  JavaScript = 'javascript',
+  Python = 'python',
+  Java = 'java',
+  Go = 'go',
+  Rust = 'rust',
+  C = 'c',
+  CPP = 'cpp',
+  Ruby = 'ruby',
+  PHP = 'php',
+  CSharp = 'csharp',
+  Swift = 'swift',
+  Kotlin = 'kotlin',
+  Unknown = 'unknown',
+}
+
+/**
+ * File extensions mapped to languages
+ */
+export const LANGUAGE_EXTENSIONS: Record<string, Language> = {
+  '.ts': Language.TypeScript,
+  '.tsx': Language.TypeScript,
+  '.js': Language.JavaScript,
+  '.jsx': Language.JavaScript,
+  '.mjs': Language.JavaScript,
+  '.cjs': Language.JavaScript,
+  '.py': Language.Python,
+  '.pyw': Language.Python,
+  '.java': Language.Java,
+  '.go': Language.Go,
+  '.rs': Language.Rust,
+  '.c': Language.C,
+  '.h': Language.C,
+  '.cpp': Language.CPP,
+  '.cc': Language.CPP,
+  '.cxx': Language.CPP,
+  '.hpp': Language.CPP,
+  '.hh': Language.CPP,
+  '.rb': Language.Ruby,
+  '.php': Language.PHP,
+  '.cs': Language.CSharp,
+  '.swift': Language.Swift,
+  '.kt': Language.Kotlin,
+  '.kts': Language.Kotlin,
+};
+
+/**
+ * Metadata for a discovered file during directory traversal
+ * Used by file-walker.ts before parsing and chunking
+ */
+export interface DiscoveredFile {
+  /** Absolute path to the file */
+  absolute_path: string;
+
+  /** Path relative to repository root */
+  relative_path: string;
+
+  /** SHA256 hash of file contents (for incremental indexing) */
+  file_hash: string;
+
+  /** Detected programming language */
+  language: Language;
+
+  /** Total number of lines in file */
+  line_count: number;
+
+  /** File size in bytes */
+  file_size_bytes: number;
+
+  /** Last modified timestamp */
+  modified_time: Date;
+
+  /** File encoding (default: utf-8) */
+  encoding: string;
+
+  // Multi-project context fields (nullable for single-repo mode)
+
+  /** Repository ID for multi-project support */
+  repo_id?: string;
+
+  /** Workspace ID for monorepo packages */
+  workspace_id?: string;
+
+  /** Package name from package.json (monorepo) */
+  package_name?: string;
+
+  /** Service ID for microservice architectures */
+  service_id?: string;
+}
+
+/**
+ * Type of parsed syntax node from tree-sitter
+ */
+export enum NodeType {
+  Function = 'function',
+  Class = 'class',
+  Method = 'method',
+  Import = 'import',
+  Export = 'export',
+  Variable = 'variable',
+  Constant = 'constant',
+  Interface = 'interface',
+  Type = 'type',
+  TopLevelBlock = 'top_level_block',
+}
+
+/**
+ * Parameter definition for function/method signatures
+ */
+export interface ParameterInfo {
+  /** Parameter name */
+  name: string;
+
+  /** Type annotation (if available) */
+  type?: string;
+
+  /** Default value (if present) */
+  default_value?: string;
+
+  /** Whether parameter is optional */
+  is_optional: boolean;
+
+  /** Whether parameter is rest/spread parameter */
+  is_rest: boolean;
+}
+
+/**
+ * Parsed syntax node from tree-sitter
+ * Represents functions, classes, imports, exports, etc.
+ */
+export interface ParsedNode {
+  /** Type of syntax node */
+  node_type: NodeType;
+
+  /** Node identifier (function/class/variable name) */
+  name: string;
+
+  /** Starting line number (1-indexed) */
+  start_line: number;
+
+  /** Ending line number (1-indexed) */
+  end_line: number;
+
+  /** Raw code text of the node */
+  code_text: string;
+
+  /** Function/method parameters */
+  parameters?: ParameterInfo[];
+
+  /** Return type annotation (if available) */
+  return_type?: string;
+
+  /** Docstring or JSDoc comment */
+  docstring?: string;
+
+  /** Cyclomatic complexity (for functions/methods) */
+  complexity?: number;
+
+  /** Child nodes (e.g., methods within a class) */
+  children?: ParsedNode[];
+
+  /** Whether function/method is async */
+  is_async?: boolean;
+
+  /** Whether function/method is static */
+  is_static?: boolean;
+
+  /** Whether function/method is private/protected/public */
+  visibility?: 'private' | 'protected' | 'public';
+}
+
+/**
+ * Import statement information
+ */
+export interface ImportInfo {
+  /** Imported symbols/identifiers */
+  symbols: string[];
+
+  /** Source module/file path */
+  source: string;
+
+  /** Whether this is a default import */
+  is_default: boolean;
+
+  /** Whether this is a namespace import (import * as) */
+  is_namespace: boolean;
+
+  /** Alias for namespace imports (e.g., "React" in "import * as React") */
+  namespace_alias?: string;
+
+  /** Whether this is an internal workspace import (monorepo) */
+  is_internal?: boolean;
+
+  /** Line number where import appears */
+  line_number: number;
+}
+
+/**
+ * Export statement information
+ */
+export interface ExportInfo {
+  /** Exported symbols/identifiers */
+  symbols: string[];
+
+  /** Whether this is a default export */
+  is_default: boolean;
+
+  /** Whether this is a re-export (export { x } from './y') */
+  is_reexport: boolean;
+
+  /** Source module for re-exports */
+  reexport_source?: string;
+
+  /** Line number where export appears */
+  line_number: number;
+}
+
+/**
+ * Chunk type classification
+ */
+export enum ChunkType {
+  /** File summary (first 100 lines or entire file) */
+  FileSummary = 'file_summary',
+
+  /** Import block (all imports grouped) */
+  ImportBlock = 'import_block',
+
+  /** Function definition */
+  Function = 'function',
+
+  /** Class definition with methods */
+  Class = 'class',
+
+  /** Top-level code block */
+  Block = 'block',
+
+  /** Fallback chunk from regex-based parsing */
+  Fallback = 'fallback',
+}
+
+/**
+ * Code chunk with metadata (output of chunker.ts)
+ * This is the intermediate representation before database insertion
+ */
+export interface CodeChunkInput {
+  /** Unique identifier (UUID v4) */
+  chunk_id: string;
+
+  /** Absolute file path */
+  file_path: string;
+
+  /** Raw code content */
+  chunk_content: string;
+
+  /** Chunk classification */
+  chunk_type: ChunkType;
+
+  /** Starting line number in file (1-indexed) */
+  start_line: number;
+
+  /** Ending line number in file (1-indexed) */
+  end_line: number;
+
+  /** Estimated token count (4 chars ≈ 1 token) */
+  token_count: number;
+
+  /** Chunk metadata (functions, classes, imports, exports, complexity) */
+  metadata: Record<string, unknown>;
+
+  /** Timestamp when chunk was created */
+  created_at: Date;
+
+  // Multi-project context fields
+
+  /** Repository ID */
+  repo_id?: string;
+
+  /** Workspace ID (monorepo) */
+  workspace_id?: string;
+
+  /** Package name (monorepo) */
+  package_name?: string;
+
+  /** Service ID (microservice) */
+  service_id?: string;
+
+  /** Whether this chunk is from a large file (>5000 lines) */
+  large_file?: boolean;
+}
+
+/**
+ * Metadata extracted from code chunks
+ * Stored in chunk metadata field as JSONB
+ */
+export interface ChunkMetadata {
+  /** Function names defined in this chunk */
+  function_names: string[];
+
+  /** Class names defined in this chunk */
+  class_names: string[];
+
+  /** Imported symbols/modules */
+  imported_symbols: string[];
+
+  /** Exported symbols */
+  exported_symbols: string[];
+
+  /** Dependencies (other files/modules referenced) */
+  dependencies: string[];
+
+  /** Cyclomatic complexity (total for chunk) */
+  complexity: number;
+
+  /** Whether chunk contains async/await */
+  has_async: boolean;
+
+  /** Whether chunk contains loops */
+  has_loops: boolean;
+
+  /** Whether chunk contains conditionals */
+  has_conditionals: boolean;
+
+  /** Whether imports are internal workspace imports (monorepo) */
+  is_internal_import?: boolean;
+
+  /** API endpoints defined in this chunk (microservices) */
+  api_endpoints?: APIEndpointInfo[];
+
+  /** Additional language-specific metadata */
+  [key: string]: unknown;
+}
+
+/**
+ * API endpoint information extracted from code
+ * Used for microservice architectures
+ */
+export interface APIEndpointInfo {
+  /** HTTP method (GET, POST, PUT, DELETE, PATCH) or GraphQL/gRPC */
+  method: string;
+
+  /** Endpoint path or operation name */
+  path: string;
+
+  /** Handler function name */
+  handler?: string;
+
+  /** Line number where endpoint is defined */
+  line_number: number;
+
+  /** API type (rest, graphql, grpc) */
+  api_type: 'rest' | 'graphql' | 'grpc';
+}
+
+/**
+ * File processing options for indexing pipeline
+ */
+export interface IndexingOptions {
+  /** Include markdown files (except README.md which is always included) */
+  include_markdown: boolean;
+
+  /** Maximum file size in lines (skip larger files) */
+  max_file_size: number;
+
+  /** Target chunk size range */
+  chunk_size_min: number;
+  chunk_size_max: number;
+
+  /** Enable workspace detection for monorepos */
+  enable_workspace_detection: boolean;
+
+  /** Enable service detection for microservices */
+  enable_service_detection: boolean;
+
+  /** Enable multi-repository support */
+  enable_multi_repo: boolean;
+
+  /** Enable API endpoint detection */
+  enable_api_endpoint_detection: boolean;
+
+  /** Repository ID for multi-project mode */
+  repo_id?: string;
+
+  /** Repository type */
+  repo_type?: 'monorepo' | 'microservice' | 'monolithic';
+}
+
+/**
+ * Result of file parsing operation
+ */
+export interface ParseResult {
+  /** Whether parsing succeeded */
+  success: boolean;
+
+  /** Parsed nodes (functions, classes, imports, exports) */
+  nodes: ParsedNode[];
+
+  /** Import statements */
+  imports: ImportInfo[];
+
+  /** Export statements */
+  exports: ExportInfo[];
+
+  /** Error message if parsing failed */
+  error?: string;
+
+  /** Whether fallback parsing was used */
+  used_fallback: boolean;
+}
+
+/**
+ * Result of chunking operation
+ */
+export interface ChunkingResult {
+  /** Generated code chunks */
+  chunks: CodeChunkInput[];
+
+  /** Total number of chunks created */
+  chunk_count: number;
+
+  /** Whether file was processed as large file (structure-only) */
+  is_large_file: boolean;
+
+  /** Warnings encountered during chunking */
+  warnings: string[];
+}
+
+/**
+ * Statistics for file discovery operation
+ */
+export interface FileDiscoveryStats {
+  /** Total files discovered */
+  total_files: number;
+
+  /** Files excluded by gitignore */
+  excluded_by_gitignore: number;
+
+  /** Binary files excluded */
+  excluded_binary: number;
+
+  /** Files skipped due to size */
+  excluded_size: number;
+
+  /** Files by language */
+  files_by_language: Record<Language, number>;
+
+  /** Total lines of code */
+  total_lines: number;
+}

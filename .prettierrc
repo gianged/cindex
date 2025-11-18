@@ -11,6 +11,28 @@
   "bracketSameLine": false,
   "proseWrap": "preserve",
   "quoteProps": "as-needed",
+  "plugins": ["@ianvs/prettier-plugin-sort-imports"],
+  "importOrder": [
+    "<BUILTIN_MODULES>",
+    "",
+    "<THIRD_PARTY_MODULES>",
+    "",
+    "^@config/(.*)$",
+    "^@database/(.*)$",
+    "^@indexing/(.*)$",
+    "^@retrieval/(.*)$",
+    "^@mcp/(.*)$",
+    "^@types/(.*)$",
+    "^@utils/(.*)$",
+    "^@/(.*)$",
+    "",
+    "^[.][.]",
+    "",
+    "^[.]"
+  ],
+  "importOrderParserPlugins": ["typescript", "decorators-legacy"],
+  "importOrderTypeScriptVersion": "5.0.0",
+  "importOrderCaseSensitive": false,
   "overrides": [
     {
       "files": "*.json",

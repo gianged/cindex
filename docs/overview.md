@@ -78,6 +78,947 @@ j **`code_chunks`** - Core embeddings table
 
 ---
 
+## 1.5 Multi-Project Architecture
+
+cindex supports indexing and searching across **multiple independent repositories**, **monorepos**, and **microservices** with configurable search scopes and dependency-aware retrieval.
+
+### Architecture Overview
+
+**Three Deployment Patterns Supported:**
+
+1. **Multi-Project (Independent Repos)** - Index multiple separate codebases, search globally or per-repo
+2. **Monorepo** - Support workspace packages (`packages/*`, `apps/*`) with alias resolution
+3. **Microservices** - Track service boundaries, API contracts, and cross-service dependencies
+
+All patterns share the same database with additional metadata tables for context and relationships.
+
+---
+
+### Core Multi-Project Tables
+
+Beyond the base tables (`code_chunks`, `code_files`, `code_symbols`), the schema includes:
+
+#### 1. Repositories Table
+
+Tracks all indexed codebases:
+
+```sql
+CREATE TABLE repositories (
+    repo_id TEXT UNIQUE,              -- Unique identifier (e.g., 'auth-service')
+    repo_name TEXT,                    -- Human-readable name
+    repo_path TEXT,                    -- Filesystem path or URL
+    repo_type TEXT,                    -- 'monorepo', 'microservice', 'monolithic', 'library'
+    workspace_config TEXT,             -- Workspace config file (pnpm-workspace.yaml, nx.json, etc.)
+    workspace_patterns TEXT[],         -- Workspace globs (['packages/*', 'apps/*'])
+    git_remote_url TEXT,
+    indexed_at TIMESTAMP
+);
+```
+
+**Usage:**
+- Each indexed codebase gets a unique `repo_id`
+- All chunks, files, and symbols tagged with `repo_id` for filtering
+- Enables global search across all repos or scoped search per repo
+
+#### 2. Services Table
+
+Tracks microservice metadata and API contracts:
+
+```sql
+CREATE TABLE services (
+    service_id TEXT UNIQUE,            -- Unique service identifier
+    service_name TEXT,                 -- Human-readable name
+    repo_id TEXT,                      -- Repository this service belongs to
+    service_path TEXT,                 -- Path to service root (for monorepo services)
+    service_type TEXT,                 -- 'rest', 'graphql', 'grpc', 'library'
+    api_endpoints JSONB,               -- Parsed API contracts (REST, GraphQL, gRPC)
+    dependencies JSONB,                -- Service-to-service dependencies
+    indexed_at TIMESTAMP
+);
+```
+
+**API Contracts Storage:**
+- **REST:** OpenAPI/Swagger specs parsed into JSONB (`{"endpoints": [...],"schemas": {...}}`)
+- **GraphQL:** Schema types and resolvers (`{"types": [...], "queries": [...], "mutations": [...]}`)
+- **gRPC:** Proto file definitions (`{"services": [...], "messages": [...]}`)
+
+**Example JSONB (REST):**
+```json
+{
+  "endpoints": [
+    {
+      "path": "/api/auth/login",
+      "method": "POST",
+      "summary": "Authenticate user with credentials",
+      "request": {"username": "string", "password": "string"},
+      "response": {"200": {"token": "string"}}
+    }
+  ]
+}
+```
+
+#### 3. Workspaces Table
+
+For monorepo support (Turborepo, Nx, pnpm, Lerna):
+
+```sql
+CREATE TABLE workspaces (
+    workspace_id TEXT UNIQUE,          -- Generated from path (e.g., 'auth-workspace')
+    package_name TEXT,                 -- Package.json name (@workspace/auth)
+    workspace_path TEXT,               -- Relative path (packages/auth)
+    repo_id TEXT,                      -- Parent repository
+    dependencies JSONB,                -- Package.json dependencies
+    tsconfig_paths JSONB,              -- TypeScript path aliases
+    indexed_at TIMESTAMP
+);
+```
+
+#### 4. Cross-Repository Dependencies Table
+
+Tracks dependencies between different repositories:
+
+```sql
+CREATE TABLE cross_repo_dependencies (
+    source_repo_id TEXT,               -- Repo that depends on another
+    target_repo_id TEXT,               -- Repo being depended on
+    dependency_type TEXT,              -- 'service', 'library', 'api', 'shared'
+    source_service_id TEXT,            -- Specific service making the call
+    target_service_id TEXT,            -- Specific service being called
+    api_contracts JSONB,               -- API contracts if applicable
+    indexed_at TIMESTAMP
+);
+```
+
+**Auto-Detection:**
+- Parse HTTP calls: `fetch('http://auth-service/api/verify')`
+- Parse gRPC clients: `new AuthServiceClient('auth-service:50051')`
+- Parse GraphQL queries: `query { getUser(id: "123") }`
+- Match against indexed `services.api_endpoints`
+
+#### 5. Workspace Dependencies Table
+
+Internal monorepo dependencies:
+
+```sql
+CREATE TABLE workspace_dependencies (
+    repo_id TEXT,
+    source_workspace_id TEXT,          -- Workspace that depends on another
+    target_workspace_id TEXT,          -- Workspace being depended on
+    dependency_type TEXT,              -- 'runtime', 'dev', 'peer'
+    version_specifier TEXT,            -- Version range from package.json
+    indexed_at TIMESTAMP
+);
+```
+
+#### 6. Workspace Aliases Table
+
+Resolves monorepo import aliases:
+
+```sql
+CREATE TABLE workspace_aliases (
+    repo_id TEXT,
+    workspace_id TEXT,
+    alias_type TEXT,                   -- 'npm_workspace', 'tsconfig_path', 'custom'
+    alias_pattern TEXT,                -- '@workspace/*', '@/*', '~/*'
+    resolved_path TEXT,                -- Resolved filesystem path
+    UNIQUE(repo_id, alias_pattern, resolved_path)
+);
+```
+
+**Examples:**
+- `@workspace/shared` → `packages/shared`
+- `@/components` → `src/components` (tsconfig paths)
+- `~/utils` → `src/utils` (custom alias)
+
+---
+
+### Configurable Search Scopes
+
+cindex supports four search modes via the `scope` parameter in `search_codebase`:
+
+#### Mode 1: Global Search (Default)
+
+Search across **all indexed repositories**:
+
+```typescript
+await search_codebase({
+  query: "How is authentication handled?",
+  scope: "global",  // Search all repos
+  max_files: 15
+});
+```
+
+**SQL Query:**
+```sql
+SELECT f.*, r.repo_name
+FROM code_files f
+JOIN repositories r ON f.repo_id = r.repo_id
+WHERE 1 - (f.summary_embedding <=> query_embedding) > 0.70
+ORDER BY f.summary_embedding <=> query_embedding
+LIMIT 30;
+```
+
+**Output:**
+```json
+{
+  "results": [
+    {"repo": "auth-service", "file": "src/auth/login.ts", "relevance": 0.92},
+    {"repo": "api-gateway", "file": "src/middleware/auth.ts", "relevance": 0.87},
+    {"repo": "user-service", "file": "src/models/user.ts", "relevance": 0.81}
+  ]
+}
+```
+
+#### Mode 2: Repository-Scoped Search
+
+Search within a **specific repository**:
+
+```typescript
+await search_codebase({
+  query: "JWT token validation",
+  scope: "repository",
+  repo_id: "auth-service",  // Only search auth-service
+  max_snippets: 20
+});
+```
+
+**SQL Query:**
+```sql
+SELECT * FROM code_chunks
+WHERE repo_id = 'auth-service'
+  AND 1 - (embedding <=> query_embedding) > 0.75
+ORDER BY embedding <=> query_embedding
+LIMIT 100;
+```
+
+#### Mode 3: Service-Scoped Search
+
+Search within a **specific microservice**:
+
+```typescript
+await search_codebase({
+  query: "GraphQL resolvers for user queries",
+  scope: "service",
+  service_id: "user-api",  // Only search user-api service
+});
+```
+
+**SQL Query:**
+```sql
+SELECT * FROM code_chunks
+WHERE service_id = 'user-api'
+  AND 1 - (embedding <=> query_embedding) > 0.75;
+```
+
+#### Mode 4: Boundary-Aware Search (Dependency Traversal)
+
+Start in one repository and **automatically expand to its dependencies**:
+
+```typescript
+await search_codebase({
+  query: "Payment processing flow",
+  scope: "boundary-aware",
+  start_repo: "payment-service",
+  include_dependencies: true,
+  dependency_depth: 2  // Max depth to traverse
+});
+```
+
+**Retrieval Flow:**
+
+1. **Search in primary repo** (`payment-service`)
+2. **Query cross-repo dependencies** to find what payment-service depends on
+3. **Expand search** to dependent repos (e.g., `auth-service`, `notification-service`)
+4. **Include API contracts** from `services.api_endpoints`
+5. **Limit depth** to prevent runaway expansion
+
+**SQL Query (Recursive CTE):**
+```sql
+WITH RECURSIVE repo_deps AS (
+  -- Base case: starting repo
+  SELECT 'payment-service' as repo_id, 0 as depth
+
+  UNION
+
+  -- Recursive case: repos that payment-service depends on
+  SELECT crd.target_repo_id, rd.depth + 1
+  FROM repo_deps rd
+  JOIN cross_repo_dependencies crd ON rd.repo_id = crd.source_repo_id
+  WHERE rd.depth < 2  -- Max depth
+)
+SELECT c.*, r.repo_name, rd.depth as dependency_depth
+FROM code_chunks c
+JOIN repositories r ON c.repo_id = r.repo_id
+JOIN repo_deps rd ON c.repo_id = rd.repo_id
+WHERE 1 - (c.embedding <=> query_embedding) > 0.75
+ORDER BY rd.depth ASC, c.embedding <=> query_embedding
+LIMIT 100;
+```
+
+**Output:**
+```json
+{
+  "results": {
+    "primary": {
+      "repo": "payment-service",
+      "chunks": [...]
+    },
+    "dependencies": [
+      {
+        "repo": "auth-service",
+        "depth": 1,
+        "relation": "Verifies user authentication before payment",
+        "api_contracts": ["/api/verify"],
+        "chunks": [...]
+      },
+      {
+        "repo": "notification-service",
+        "depth": 1,
+        "relation": "Sends payment confirmation emails",
+        "chunks": [...]
+      }
+    ]
+  }
+}
+```
+
+---
+
+### API Contract Indexing
+
+cindex indexes API definitions from OpenAPI/Swagger, GraphQL schemas, and gRPC proto files.
+
+#### REST API (OpenAPI/Swagger)
+
+**Source:** `openapi.yaml` or `swagger.json`
+
+```yaml
+paths:
+  /api/auth/login:
+    post:
+      summary: Authenticate user with credentials
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                properties:
+                  token: { type: string }
+```
+
+**Stored in `services.api_endpoints` (JSONB):**
+```json
+{
+  "openapi": "3.0.0",
+  "endpoints": [
+    {
+      "path": "/api/auth/login",
+      "method": "POST",
+      "summary": "Authenticate user with credentials",
+      "request_schema": {"username": "string", "password": "string"},
+      "response_schema": {"200": {"token": "string"}},
+      "implementation_file": "src/controllers/auth.ts",
+      "implementation_lines": "45-67"
+    }
+  ]
+}
+```
+
+#### GraphQL API
+
+**Source:** `schema.graphql`
+
+```graphql
+type Query {
+  getUser(id: ID!): User
+  getPayments(userId: ID!): [Payment]
+}
+
+type Mutation {
+  processPayment(input: PaymentInput!): PaymentResult
+}
+
+type User {
+  id: ID!
+  username: String!
+  email: String!
+}
+```
+
+**Stored in `services.api_endpoints` (JSONB):**
+```json
+{
+  "schema_type": "graphql",
+  "types": [
+    {"name": "User", "fields": ["id", "username", "email"]},
+    {"name": "Query", "fields": [
+      {"name": "getUser", "args": ["id: ID!"], "returns": "User"},
+      {"name": "getPayments", "args": ["userId: ID!"], "returns": "[Payment]"}
+    ]},
+    {"name": "Mutation", "fields": [
+      {"name": "processPayment", "args": ["input: PaymentInput!"], "returns": "PaymentResult"}
+    ]}
+  ],
+  "resolvers": {
+    "Query.getUser": {"file": "src/resolvers/user.ts", "lines": "12-25"},
+    "Mutation.processPayment": {"file": "src/resolvers/payment.ts", "lines": "34-78"}
+  }
+}
+```
+
+#### gRPC API
+
+**Source:** `*.proto` files
+
+```protobuf
+syntax = "proto3";
+
+service AuthService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc VerifyToken(TokenRequest) returns (TokenResponse);
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string token = 1;
+  int64 expires_at = 2;
+}
+```
+
+**Stored in `services.api_endpoints` (JSONB):**
+```json
+{
+  "schema_type": "grpc",
+  "services": [
+    {
+      "name": "AuthService",
+      "methods": [
+        {
+          "name": "Login",
+          "request": "LoginRequest",
+          "response": "LoginResponse",
+          "implementation_file": "src/grpc/auth-service.ts",
+          "implementation_lines": "89-112"
+        },
+        {
+          "name": "VerifyToken",
+          "request": "TokenRequest",
+          "response": "TokenResponse"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {"name": "LoginRequest", "fields": ["username", "password"]},
+    {"name": "LoginResponse", "fields": ["token", "expires_at"]}
+  ]
+}
+```
+
+---
+
+### Enhanced Retrieval Pipeline (7 Stages)
+
+The multi-project architecture extends the retrieval pipeline from 4 stages to 7:
+
+**Stage 0: Scope Filtering (NEW)**
+- Determine search scope (global, repository, service, boundary-aware)
+- If boundary-aware: Resolve dependency graph from `cross_repo_dependencies`
+- Generate `repo_id` filter list for subsequent stages
+
+**Stage 1: File-Level Retrieval**
+- Apply `repo_id` filter from Stage 0
+- Query `code_files` with `summary_embedding`
+- Return top N files per repository
+
+**Stage 2: Chunk-Level Retrieval**
+- Query `code_chunks` within filtered files
+- Apply `repo_id`/`service_id` filters
+- Return top M chunks
+
+**Stage 3: Symbol Resolution**
+- Query `code_symbols` for imported symbols
+- Respect repository boundaries (only resolve if in indexed repos)
+- Return symbol definitions
+
+**Stage 4: Import Chain Expansion**
+- Follow import chains within and across repositories
+- Check `cross_repo_dependencies` for cross-service imports
+- Limit depth per repository (default: 3)
+
+**Stage 5: API Contract Enrichment (NEW)**
+- Query `services.api_endpoints` for relevant APIs
+- Match code chunks to API implementations
+- Include REST/GraphQL/gRPC definitions
+- Add API call relationships
+
+**Stage 6: Deduplication**
+- Deduplicate across all repositories
+- Keep highest-scoring version
+- Note: Same utility in different repos may be intentional (tag, don't remove)
+
+**Stage 7: Context Assembly**
+- Group results by repository
+- Show dependency relationships (depth levels)
+- Include API contracts
+- Add repository/service metadata
+
+---
+
+### Cross-Service Dependency Detection
+
+cindex automatically detects cross-service dependencies by parsing code for service calls.
+
+#### Detection Patterns
+
+**1. HTTP/REST Calls:**
+```typescript
+// payment-service/src/process-payment.ts
+const verifyUser = async (token: string) => {
+  const response = await fetch('http://auth-service/api/verify', {
+    method: 'POST',
+    body: JSON.stringify({ token })
+  });
+  return response.json();
+};
+```
+
+**Detected:**
+- Source: `payment-service`
+- Target: `auth-service`
+- API endpoint: `/api/verify`
+- Method: `POST`
+
+**2. gRPC Calls:**
+```typescript
+// payment-service/src/auth-client.ts
+import { AuthServiceClient } from './proto/auth_grpc_pb';
+
+const client = new AuthServiceClient('auth-service:50051');
+const response = await client.Login(loginRequest);
+```
+
+**Detected:**
+- Source: `payment-service`
+- Target: `auth-service`
+- RPC method: `Login`
+- Protocol: `grpc`
+
+**3. GraphQL Queries:**
+```typescript
+// dashboard-service/src/data-fetcher.ts
+const { data } = await graphqlClient.query({
+  query: gql`
+    query GetUser($id: ID!) {
+      getUser(id: $id) {
+        username
+        email
+      }
+    }
+  `
+});
+```
+
+**Detected:**
+- Source: `dashboard-service`
+- Target: Service hosting GraphQL API
+- Query: `GetUser`
+- Protocol: `graphql`
+
+#### Storage in Cross-Repo Dependencies
+
+```sql
+INSERT INTO cross_repo_dependencies (
+  source_repo_id, target_repo_id, dependency_type,
+  source_service_id, target_service_id, api_contracts
+) VALUES (
+  'payment-service', 'auth-service', 'api',
+  'payment-api', 'auth-api',
+  '{"endpoint": "/api/verify", "method": "POST", "usage_count": 3}'::jsonb
+);
+```
+
+#### Retrieval Enhancement
+
+When searching with `include_dependencies=true`:
+
+1. Detect service calls in retrieved code chunks
+2. Query `cross_repo_dependencies` for related services
+3. Fetch API contract definitions from `services.api_endpoints`
+4. Include implementation code from target service
+5. Show relationship: "payment-service calls auth-service.verify()"
+
+**Example Output:**
+```json
+{
+  "chunk": {
+    "file": "payment-service/src/process-payment.ts",
+    "code": "const response = await fetch('http://auth-service/api/verify', ...)",
+    "service_calls": [
+      {
+        "target_service": "auth-service",
+        "api_endpoint": "/api/verify",
+        "contract": {
+          "method": "POST",
+          "request": {"token": "string"},
+          "response": {"valid": "boolean", "user_id": "string"}
+        },
+        "implementation": {
+          "file": "auth-service/src/controllers/verify.ts",
+          "lines": "23-45",
+          "code": "export const verifyToken = async (req, res) => { ... }"
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Multi-Project Indexing Workflow
+
+#### Indexing Multiple Repositories
+
+```typescript
+// Index first repository (auth-service)
+await index_repository({
+  repo_path: "/workspace/auth-service",
+  repo_id: "auth-service",
+  repo_type: "microservice",
+  service_config: {
+    service_id: "auth-api",
+    service_type: "rest",
+    api_spec_path: "./docs/openapi.yaml"
+  }
+});
+
+// Index second repository (payment-service)
+await index_repository({
+  repo_path: "/workspace/payment-service",
+  repo_id: "payment-service",
+  repo_type: "microservice",
+  service_config: {
+    service_id: "payment-api",
+    service_type: "rest",
+    api_spec_path: "./api/swagger.json"
+  },
+  detect_dependencies: true,
+  dependency_repos: ["auth-service"]  // Link against already indexed repos
+});
+```
+
+**Indexing Steps:**
+
+1. **Parse repository metadata** → Insert into `repositories` table
+2. **Parse service config** → Insert into `services` table
+3. **Parse API contracts** (OpenAPI/GraphQL/gRPC) → Store in `services.api_endpoints`
+4. **Index code files** → Populate `code_chunks`, `code_files`, `code_symbols` with `repo_id`
+5. **Detect service calls** → Populate `cross_repo_dependencies`
+6. **Build embeddings** → Generate vectors for all chunks and API definitions
+
+#### Incremental Re-indexing with Multi-Project
+
+```typescript
+// Re-index only changed files in auth-service
+await index_repository({
+  repo_id: "auth-service",
+  incremental: true  // Only update changed files
+});
+```
+
+**Process:**
+1. Compare file hashes for `repo_id = 'auth-service'`
+2. Re-embed only modified files
+3. Update `cross_repo_dependencies` if imports changed
+4. Update `services.api_endpoints` if API contracts changed
+
+---
+
+### MCP Tools with Multi-Project Support
+
+#### Updated: `search_codebase`
+
+```typescript
+{
+  name: "search_codebase",
+  description: "Semantic search with configurable scope (global, repo, service, boundary-aware)",
+  inputSchema: {
+    query: string,
+
+    // NEW: Scope configuration
+    scope: "global" | "repository" | "service" | "boundary-aware",
+    repo_id?: string,           // For scope=repository
+    service_id?: string,        // For scope=service
+    start_repo?: string,        // For scope=boundary-aware
+
+    // NEW: Dependency expansion
+    include_dependencies: boolean,  // Default: false
+    dependency_depth: number,       // Default: 2
+
+    // NEW: API contract search
+    search_api_contracts: boolean,  // Default: true
+
+    // Existing parameters
+    max_files: number,              // Default: 15
+    max_snippets: number,           // Default: 25
+    include_imports: boolean,
+    import_depth: number
+  }
+}
+```
+
+#### NEW: `search_api_contracts`
+
+Search API contracts across services:
+
+```typescript
+{
+  name: "search_api_contracts",
+  description: "Search API contracts (REST/GraphQL/gRPC) across services",
+  inputSchema: {
+    query: string,              // "login endpoint" or "payment mutation"
+    api_type?: "rest" | "graphql" | "grpc" | "all",  // Default: "all"
+    service_id?: string,        // Optional: scope to specific service
+    include_implementation: boolean  // Include code implementing these APIs
+  },
+  returns: {
+    contracts: [
+      {
+        service: "auth-api",
+        type: "rest",
+        endpoint: "/api/auth/login",
+        method: "POST",
+        summary: "Authenticate user credentials",
+        implementation_file: "src/controllers/auth.ts",
+        implementation_lines: "45-67",
+        implementation_code: "export const login = async (...) => { ... }"
+      }
+    ]
+  }
+}
+```
+
+#### NEW: `list_indexed_repos`
+
+List all indexed repositories and services:
+
+```typescript
+{
+  name: "list_indexed_repos",
+  description: "List all indexed repositories and services",
+  inputSchema: {},
+  returns: {
+    repositories: [
+      {
+        repo_id: "auth-service",
+        repo_name: "Authentication Service",
+        repo_type: "microservice",
+        indexed_at: "2025-01-18T10:30:00Z",
+        total_files: 245,
+        total_chunks: 1823,
+        services: [
+          {
+            service_id: "auth-api",
+            service_type: "rest",
+            api_endpoints_count: 12,
+            dependencies_count: 2
+          }
+        ]
+      },
+      {
+        repo_id: "payment-service",
+        repo_name: "Payment Service",
+        repo_type: "microservice",
+        indexed_at: "2025-01-18T11:15:00Z",
+        total_files: 189,
+        services: [...]
+      }
+    ]
+  }
+}
+```
+
+#### Updated: `index_repository`
+
+```typescript
+{
+  name: "index_repository",
+  description: "Index or re-index a codebase with multi-project support",
+  inputSchema: {
+    repo_path: string,
+
+    // NEW: Multi-project support
+    repo_id: string,            // Unique identifier (required for multi-project)
+    repo_type: "monorepo" | "microservice" | "monolithic" | "library",
+
+    // NEW: Service configuration
+    service_config?: {
+      service_id: string,
+      service_type: "rest" | "graphql" | "grpc" | "library",
+      api_spec_path?: string,   // Path to openapi.yaml, schema.graphql, *.proto
+    },
+
+    // NEW: Cross-repo dependency detection
+    detect_dependencies: boolean,      // Analyze imports for cross-service calls
+    dependency_repos?: string[],       // List of other indexed repos to link against
+
+    // Existing parameters
+    incremental: boolean,              // Default: true
+    languages: string[],
+    include_markdown: boolean,
+    respect_gitignore: boolean,
+    max_file_size: number,
+    summary_method: "llm" | "rule-based"
+  }
+}
+```
+
+---
+
+### Example: Multi-Service Query Flow
+
+**Query:** "How does payment processing work?"
+
+**Tool Call:**
+```typescript
+await search_codebase({
+  query: "How does payment processing work?",
+  scope: "boundary-aware",
+  start_repo: "payment-service",
+  include_dependencies: true,
+  dependency_depth: 2,
+  search_api_contracts: true
+});
+```
+
+**Retrieval Process:**
+
+1. **Stage 0: Scope Filtering**
+   - Start repo: `payment-service`
+   - Query `cross_repo_dependencies` → Find deps: `auth-service`, `notification-service`
+   - Repo filter: `['payment-service', 'auth-service', 'notification-service']`
+
+2. **Stage 1: File-Level Retrieval**
+   ```sql
+   SELECT * FROM code_files
+   WHERE repo_id IN ('payment-service', 'auth-service', 'notification-service')
+     AND 1 - (summary_embedding <=> query_embedding) > 0.70
+   ORDER BY
+     CASE WHEN repo_id = 'payment-service' THEN 0 ELSE 1 END,
+     summary_embedding <=> query_embedding
+   LIMIT 30;
+   ```
+
+3. **Stage 2: Chunk Retrieval**
+   - Get chunks from top files
+   - Tag with `dependency_depth`: 0 (primary), 1 (direct dep), 2 (indirect dep)
+
+4. **Stage 3: Symbol Resolution**
+   - Resolve imported symbols across repos
+
+5. **Stage 4: Import Chain Expansion**
+   - Follow imports within depth limit
+
+6. **Stage 5: API Contract Enrichment**
+   ```sql
+   SELECT crd.target_service_id, crd.api_contracts, s.api_endpoints
+   FROM cross_repo_dependencies crd
+   JOIN services s ON crd.target_service_id = s.service_id
+   WHERE crd.source_repo_id = 'payment-service';
+   ```
+
+7. **Stage 6: Deduplication**
+   - Remove duplicate utilities (cross-repo aware)
+
+8. **Stage 7: Context Assembly**
+
+**Final Output:**
+```json
+{
+  "query": "How does payment processing work?",
+  "scope": "boundary-aware",
+  "metadata": {
+    "total_repos_searched": 3,
+    "total_files": 12,
+    "total_chunks": 28,
+    "dependency_depth_reached": 1,
+    "query_time_ms": 720
+  },
+  "results": {
+    "primary_service": {
+      "repo": "payment-service",
+      "service": "payment-api",
+      "files": ["src/process-payment.ts", "src/payment-validator.ts"],
+      "chunks": [
+        {
+          "file": "src/process-payment.ts",
+          "lines": "45-80",
+          "relevance": 0.94,
+          "code": "export const processPayment = async (userId, amount) => {\n  // Verify user authentication\n  const user = await authClient.verify(userId);\n  ...\n}",
+          "service_calls": [
+            {
+              "target": "auth-service",
+              "api": "/api/verify",
+              "contract": {/* API contract details */}
+            }
+          ]
+        }
+      ]
+    },
+    "dependencies": [
+      {
+        "repo": "auth-service",
+        "service": "auth-api",
+        "depth": 1,
+        "relationship": "Verifies user authentication before payment",
+        "api_contracts": [
+          {
+            "endpoint": "/api/verify",
+            "method": "POST",
+            "summary": "Verify JWT token validity",
+            "request": {"token": "string"},
+            "response": {"valid": "boolean", "user_id": "string"}
+          }
+        ],
+        "implementation": {
+          "file": "src/controllers/verify.ts",
+          "lines": "23-45",
+          "code": "export const verifyToken = async (req, res) => { ... }",
+          "relevance": 0.87
+        }
+      },
+      {
+        "repo": "notification-service",
+        "service": "notification-api",
+        "depth": 1,
+        "relationship": "Sends payment confirmation emails",
+        "api_contracts": [
+          {
+            "endpoint": "/api/notifications/send",
+            "method": "POST"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
 ## Installation
 
 ### Via NPM (Recommended)
@@ -407,6 +1348,12 @@ SYMBOLS: authenticateUser, User, AuthError"
 
 **Query Input:** User's natural language question or code snippet
 
+> **Note:** This section describes the **base 4-stage retrieval pipeline** for single-repository search. For **multi-project architectures** (multiple repos, monorepos, microservices), see [Section 1.5: Multi-Project Architecture](#15-multi-project-architecture) which documents the **enhanced 7-stage pipeline** with scope filtering, API contract enrichment, and cross-repository dependency traversal.
+
+### Base Retrieval Pipeline (Single Repository)
+
+The following 4-stage pipeline is used for single-repository searches and as the foundation for multi-project retrieval:
+
 ### Stage 1: File-Level Retrieval (Broad)
 
 ```sql
@@ -627,6 +1574,14 @@ function authenticateUser(username: string, password: string): Promise<User> {
 ---
 
 ## 6. MCP Tools Design
+
+> **Note:** This section describes the **base MCP tools** for single-repository use. For **multi-project support** (multiple repos, monorepos, microservices), see [Section 1.5: Multi-Project Architecture - MCP Tools](#mcp-tools-with-multi-project-support) which documents:
+> - Updated `search_codebase` with scope configuration (global, repository, service, boundary-aware)
+> - New `search_api_contracts` tool for searching REST/GraphQL/gRPC APIs
+> - New `list_indexed_repos` tool for listing all indexed repositories
+> - Updated `index_repository` with multi-project parameters
+
+### Base MCP Tools (Single Repository)
 
 ### Tool 1: `search_codebase`
 

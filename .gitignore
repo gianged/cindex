@@ -22,7 +22,10 @@ build/
 *.js
 *.js.map
 *.d.ts
+!eslint.config.js
 !jest.config.js
+!esbuild.config.js
+!tests/**/*.js
 
 # Testing
 coverage/

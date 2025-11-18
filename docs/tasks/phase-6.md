@@ -45,7 +45,17 @@ production deployment.
       max 1000 entries, LRU eviction
 - [ ] Implement search result cache: key = query + options (JSON), value = SearchResult + timestamp,
       TTL 5 minutes, LRU eviction
+- [ ] **[MONOREPO/MICROSERVICE]** Implement workspace metadata cache: workspace dependency graphs,
+      package.json data, TTL 30 minutes
+- [ ] **[MONOREPO/MICROSERVICE]** Implement service metadata cache: API endpoint lists, service
+      dependencies, TTL 30 minutes
+- [ ] **[MONOREPO]** Implement alias resolution cache: @workspace/* mappings, tsconfig paths, TTL 1
+      hour
 - [ ] Invalidate caches on re-index (clear all)
+- [ ] **[MONOREPO/MICROSERVICE]** Workspace-specific invalidation: invalidate only affected workspace
+      when single package re-indexed
+- [ ] **[MICROSERVICE]** Service-specific invalidation: invalidate only affected service when service
+      re-indexed
 - [ ] Track statistics: hit rate, cache size, total hits
 - [ ] Target: cached query <100ms (vs 800ms uncached)
 
@@ -84,11 +94,27 @@ production deployment.
 - [ ] Scale tests: small (1k LoC, <30s index, <500ms query), medium (10k LoC, <5min index, <800ms
       query), large (100k LoC, <30min index, <1s query), very large (1M LoC, <1 hour index, <1.5s
       query)
+- [ ] **[MONOREPO]** Monorepo scale tests: small monorepo (5 workspaces, 10k LoC, <7min index),
+      medium (20 workspaces, 50k LoC, <20min index), large (50+ workspaces, 200k LoC, <1 hour index)
+- [ ] **[MICROSERVICE]** Multi-repo tests: 5 service repos (10k LoC each, <40min total index with
+      linking), 20 service repos (5k LoC each, <1 hour total index)
+- [ ] **[MONOREPO]** Workspace detection tests: Turborepo, Nx, pnpm workspaces, npm workspaces, Lerna
+      (100% detection accuracy), tsconfig path alias resolution (>95% accuracy), @workspace/* import
+      resolution (>98% accuracy), cross-workspace dependency graph (100% circular detection)
+- [ ] **[MICROSERVICE]** Service boundary tests: services/* directory detection (>95% accuracy),
+      docker-compose.yml parsing (100% service extraction), API endpoint detection (>85% accuracy for
+      Express/NestJS), service dependency graph (100% accuracy)
+- [ ] **[MULTI-LANGUAGE MONOREPO]** Mixed-language tests: TypeScript + Python monorepo, TypeScript +
+      Go microservices, verify language-specific workspace handling
 - [ ] Stress tests: 10 concurrent queries (<5s total), 100 rapid re-index iterations (no leaks,
       stable performance)
 - [ ] Accuracy tests: 100 test queries (top 1: >85%, top 5: >92%, top 10: >95%), deduplication (>95%
       caught, <5% false positives), import chain (100% circular detected, 100% depth respected, 100%
       external marked)
+- [ ] **[MONOREPO/MICROSERVICE]** Architecture-aware accuracy: workspace-scoped search (>90% relevant
+      within workspace), service-scoped search (>90% relevant within service), cross-workspace
+      deduplication (>95% shared utilities deduplicated), cross-service deduplication (0% false
+      deduplication - keep legitimate duplicates)
 - [ ] Regression tests: re-run full test suite after each optimization, verify no functionality
       broken, verify performance improved
 
