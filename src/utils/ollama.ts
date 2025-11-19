@@ -138,7 +138,12 @@ export class OllamaClient {
   /**
    * Generate embedding for text
    */
-  async generateEmbedding(modelName: string, text: string, expectedDimensions: number): Promise<number[]> {
+  async generateEmbedding(
+    modelName: string,
+    text: string,
+    expectedDimensions: number,
+    contextWindow?: number
+  ): Promise<number[]> {
     const generateFn = async (): Promise<number[]> => {
       try {
         const controller = new AbortController();
@@ -154,6 +159,11 @@ export class OllamaClient {
           body: JSON.stringify({
             model: modelName,
             prompt: text,
+            ...(contextWindow && {
+              options: {
+                num_ctx: contextWindow,
+              },
+            }),
           }),
           signal: controller.signal,
         });
@@ -189,7 +199,7 @@ export class OllamaClient {
   /**
    * Generate text summary using LLM
    */
-  async generateSummary(modelName: string, prompt: string): Promise<string> {
+  async generateSummary(modelName: string, prompt: string, contextWindow?: number): Promise<string> {
     const generateFn = async (): Promise<string> => {
       try {
         const controller = new AbortController();
@@ -206,6 +216,11 @@ export class OllamaClient {
             model: modelName,
             prompt,
             stream: false,
+            ...(contextWindow && {
+              options: {
+                num_ctx: contextWindow,
+              },
+            }),
           }),
           signal: controller.signal,
         });
@@ -236,7 +251,8 @@ export class OllamaClient {
     modelName: string,
     texts: string[],
     expectedDimensions: number,
-    concurrency = 5
+    concurrency = 5,
+    contextWindow?: number
   ): Promise<number[][]> {
     const results: number[][] = new Array<number[]>(texts.length);
     const errors: { index: number; error: Error }[] = [];
@@ -247,7 +263,7 @@ export class OllamaClient {
       const promises = batch.map(async (text, batchIndex) => {
         const index = i + batchIndex;
         try {
-          const embedding = await this.generateEmbedding(modelName, text, expectedDimensions);
+          const embedding = await this.generateEmbedding(modelName, text, expectedDimensions, contextWindow);
           results[index] = embedding;
         } catch (error) {
           errors.push({

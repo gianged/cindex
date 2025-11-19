@@ -16,9 +16,12 @@ discovery through vector embeddings, multi-stage retrieval, and dependency analy
 
 - **MCP SDK:** `@modelcontextprotocol/sdk` - MCP server framework
 - **Database:** PostgreSQL 16+ with pgvector extension for vector similarity search
-- **Embeddings:** Ollama (mxbai-embed-large, 1024 dimensions)
-- **LLM Summaries:** Ollama (qwen2.5-coder:1.5b/3b)
-- **Code Parsing:** tree-sitter with language-specific parsers
+- **Embeddings:** Ollama (bge-m3:567m, 1024 dimensions)
+- **LLM Summaries:** Ollama (qwen2.5-coder:7b, or 1.5b/3b for speed)
+- **Code Parsing:** tree-sitter with 12 language parsers
+  - Full support: TypeScript, JavaScript, Python, Java, Go, Rust, C, C++, C#, PHP, Ruby, Kotlin
+  - Fallback parsing: Swift and other languages (regex-based)
+- **YAML/Config Parsing:** js-yaml for Docker Compose, serverless configs
 - **Vector Index:** HNSW (Hierarchical Navigable Small World) for production
 
 ## Development Commands
@@ -82,7 +85,7 @@ npm start
 2. **Parsing:** Tree-sitter for syntax-aware chunking (regex fallback for unsupported languages)
 3. **Chunking:** Extract functions, classes, and logical blocks (50-500 lines each)
 4. **Summary Generation:** LLM-based file summaries using qwen2.5-coder
-5. **Embedding:** Generate vectors via Ollama mxbai-embed-large
+5. **Embedding:** Generate vectors via Ollama bge-m3:567m
 6. **Storage:** PostgreSQL with pgvector extension
 
 ### MCP Tools
@@ -179,16 +182,27 @@ npm start
   - Input validation with fail-fast ✅
   - Deletion statistics per repository ✅
 
-**What's In Progress:** ⚠️
-
-- **Embeddings & Summaries** (Phase 3: ~83%)
+- **Embeddings & Summaries** (Phase 3: 100%)
   - LLM summary generation via Ollama ✅
-  - Embedding generation (mxbai-embed-large) ✅
+  - Embedding generation (bge-m3:567m) ✅
   - Symbol extraction and indexing ✅
   - Database persistence with batch optimization ✅
   - Progress tracking with ETA calculation ✅
   - Pipeline orchestrator ✅
-  - API contract parsing (REST/GraphQL/gRPC) ⚠️ Deferred to Phase 3.1
+  - API contract parsing (REST/GraphQL/gRPC) ✅
+- **Language Support Expansion** (Phase 3.2: 100%)
+  - C# tree-sitter support (full parsing) ✅
+  - PHP tree-sitter support (v0.23.12, compatible) ✅
+  - Ruby tree-sitter support (v0.21.0, compatible) ✅
+  - Kotlin tree-sitter support (v0.3.8) ✅
+  - Swift build issues documented (requires tree-sitter-cli) ✅
+  - Total: 12 languages with full tree-sitter parsing ✅
+- **Project Structure Detection** (Phase 3.3: 100%)
+  - Docker Compose parsing with js-yaml ✅
+  - Full Docker config extraction (ports, networks, volumes, dependencies) ✅
+  - Serverless framework detection (Serverless Framework, Vercel, Netlify, AWS SAM, AWS CDK) ✅
+  - Mobile project detection (React Native, Expo, Flutter, Capacitor, Ionic) ✅
+  - Service type classification (docker, serverless, mobile) ✅
 
 **What's Planned:** ⚠️
 - **Multi-Stage Retrieval** (Phase 4: not started)
@@ -213,14 +227,14 @@ npm start
   - Performance monitoring
   - Scale testing
 
-**Overall Completion: ~48%**
+**Overall Completion: ~58%**
 
-- Phase 1: ✅ 100% Complete
-- Phase 2: ✅ 100% Complete
-- Phase 3: ⚠️ ~83% Complete (Core pipeline done, API parsing deferred)
-- Phase 4: ❌ 0% Complete
-- Phase 5: ⚠️ ~8% Complete
-- Phase 6: ❌ 0% Complete
+- Phase 1: ✅ 100% Complete (Database Schema & Types)
+- Phase 2: ✅ 100% Complete (Base Indexing & Version Tracking)
+- Phase 3: ✅ 100% Complete (Embeddings, Language Support, Project Detection)
+- Phase 4: ❌ 0% Complete (Multi-Stage Retrieval)
+- Phase 5: ⚠️ ~8% Complete (MCP Tools)
+- Phase 6: ❌ 0% Complete (Optimization)
 
 See `docs/tasks/phase-*.md` for detailed task breakdowns and checklists.
 
@@ -318,10 +332,20 @@ All settings are configured through environment variables in the MCP config file
 
 ### Model Settings
 
-- `EMBEDDING_MODEL` (default: mxbai-embed-large)
+- `EMBEDDING_MODEL` (default: bge-m3:567m)
 - `EMBEDDING_DIMENSIONS` (default: 1024)
-- `SUMMARY_MODEL` (default: qwen2.5-coder:1.5b)
+- `EMBEDDING_CONTEXT_WINDOW` (default: 4096, range: 512-131072) - Token limit for embedding model
+- `SUMMARY_MODEL` (default: qwen2.5-coder:7b)
+- `SUMMARY_CONTEXT_WINDOW` (default: 4096, range: 512-131072) - Token limit for summary model
 - `OLLAMA_HOST` (default: http://localhost:11434)
+
+**Context Window Notes:**
+- Default 4096 matches Ollama's default and is sufficient (cindex only uses first 100 lines per file)
+- Higher values consume more VRAM and are slower to process
+- bge-m3:567m supports up to 8K tokens
+- qwen2.5-coder:7b supports up to 32K tokens
+- Only increase if you encounter issues with large files or need more context
+- With 8GB VRAM (RTX 4060), you can comfortably use 4K-32K context windows
 
 ### Database Settings
 
@@ -514,7 +538,7 @@ Use test fixtures in `tests/fixtures/` for consistent test data.
 
 ### Speed-First Mode (Alternative)
 
-Set `SUMMARY_MODEL=qwen2.5-coder:1.5b`, `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESHOLD=0.70`
+Set `SUMMARY_MODEL=qwen2.5-coder:1.5b` (speed optimization), `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESHOLD=0.70`
 
 - **Indexing:** 500-1000 files/min
 - **Query time:** <500ms
@@ -700,8 +724,8 @@ import { logger } from '@utils/logger';
 
    ```bash
    curl https://ollama.ai/install.sh | sh
-   ollama pull mxbai-embed-large
-   ollama pull qwen2.5-coder:1.5b
+   ollama pull bge-m3:567m
+   ollama pull qwen2.5-coder:7b
    ```
 
 3. Create development database:

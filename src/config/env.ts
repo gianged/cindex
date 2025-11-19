@@ -118,9 +118,21 @@ export const loadConfig = (): CindexConfig => {
   const embeddingModel =
     getEnv(ENV_VARS.EMBEDDING_MODEL, DEFAULT_CONFIG.embedding.model) ?? DEFAULT_CONFIG.embedding.model;
   const embeddingDimensions = parseEnvInt(ENV_VARS.EMBEDDING_DIMENSIONS, DEFAULT_CONFIG.embedding.dimensions, 1, 4096);
+  const embeddingContextWindow = parseEnvInt(
+    ENV_VARS.EMBEDDING_CONTEXT_WINDOW,
+    DEFAULT_CONFIG.embedding.context_window ?? 4096,
+    512,
+    131072
+  );
 
   // Load summary configuration
   const summaryModel = getEnv(ENV_VARS.SUMMARY_MODEL, DEFAULT_CONFIG.summary.model) ?? DEFAULT_CONFIG.summary.model;
+  const summaryContextWindow = parseEnvInt(
+    ENV_VARS.SUMMARY_CONTEXT_WINDOW,
+    DEFAULT_CONFIG.summary.context_window ?? 4096,
+    512,
+    131072
+  );
 
   // Load Ollama configuration
   const ollamaHost = getEnv(ENV_VARS.OLLAMA_HOST, DEFAULT_CONFIG.ollama.host) ?? DEFAULT_CONFIG.ollama.host;
@@ -183,11 +195,13 @@ export const loadConfig = (): CindexConfig => {
       model: embeddingModel,
       dimensions: embeddingDimensions,
       batch_size: DEFAULT_CONFIG.embedding.batch_size,
+      context_window: embeddingContextWindow,
     },
     summary: {
       model: summaryModel,
       method: DEFAULT_CONFIG.summary.method,
       max_lines: DEFAULT_CONFIG.summary.max_lines,
+      context_window: summaryContextWindow,
     },
     ollama: {
       host: ollamaHost,

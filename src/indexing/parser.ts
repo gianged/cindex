@@ -8,13 +8,19 @@
  * - Top-level variables and constants
  * - Cyclomatic complexity
  *
- * Supports 11 programming languages with regex fallback for parse errors.
+ * Supports 12 programming languages with full tree-sitter parsing:
+ * - TypeScript, JavaScript, Python, Java, Go, Rust
+ * - C, C++, C#, PHP, Ruby, Kotlin
+ *
+ * Swift and other languages use regex fallback parsing.
  */
 
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
 import Parser from 'tree-sitter';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
 import C from 'tree-sitter-c';
+// eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
+import CSharp from 'tree-sitter-c-sharp';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
 import Cpp from 'tree-sitter-cpp';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
@@ -24,7 +30,13 @@ import Java from 'tree-sitter-java';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
 import JavaScript from 'tree-sitter-javascript';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
+import Kotlin from 'tree-sitter-kotlin';
+// eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
+import PHP from 'tree-sitter-php';
+// eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
 import Python from 'tree-sitter-python';
+// eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
+import Ruby from 'tree-sitter-ruby';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
 import Rust from 'tree-sitter-rust';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- Tree-sitter library exports use PascalCase
@@ -43,7 +55,7 @@ import {
 
 /**
  * Map languages to tree-sitter parsers
- * Note: Ruby, PHP, CSharp have dependency conflicts - using fallback parsing
+ * Note: Swift has build issues - using fallback parsing
  */
 const LANGUAGE_PARSERS: Record<Language, object | null> = {
   [Language.TypeScript]: TypeScript.typescript,
@@ -54,11 +66,11 @@ const LANGUAGE_PARSERS: Record<Language, object | null> = {
   [Language.Rust]: Rust,
   [Language.C]: C,
   [Language.CPP]: Cpp,
-  [Language.Ruby]: null, // Dependency conflict - uses fallback
-  [Language.PHP]: null, // Dependency conflict - uses fallback
-  [Language.CSharp]: null, // Dependency conflict - uses fallback
-  [Language.Swift]: null, // Not available yet
-  [Language.Kotlin]: null, // Not available yet
+  [Language.CSharp]: CSharp,
+  [Language.Ruby]: Ruby,
+  [Language.PHP]: PHP.php,
+  [Language.Kotlin]: Kotlin,
+  [Language.Swift]: null, // Build issues with tree-sitter-cli - uses fallback
   [Language.Unknown]: null,
 };
 
@@ -170,6 +182,9 @@ export class CodeParser {
         break;
       case Language.CSharp:
         this.extractCSharpNodes(node, code, nodes, imports, exports);
+        break;
+      case Language.Kotlin:
+        this.extractKotlinNodes(node, code, nodes, imports, exports);
         break;
     }
 
@@ -545,16 +560,417 @@ export class CodeParser {
     // TODO: Implement C/C++-specific extraction
   };
 
-  private extractRubyNodes = (..._args: Parameters<typeof this.extractJavaScriptNodes>): void => {
-    // TODO: Implement Ruby-specific extraction
+  /**
+   * Extract nodes from Ruby syntax tree
+   */
+  private extractRubyNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    _exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract method definitions
+    if (type === 'method' || type === 'singleton_method') {
+      const func = this.extractFunction(node, code);
+      if (func) {
+        nodes.push(func);
+      }
+    }
+
+    // Extract class definitions
+    if (type === 'class') {
+      const cls = this.extractClass(node, code);
+      if (cls) {
+        nodes.push(cls);
+      }
+    }
+
+    // Extract module definitions
+    if (type === 'module') {
+      const mod = this.extractInterface(node, code);
+      if (mod) {
+        nodes.push(mod);
+      }
+    }
+
+    // Extract require/require_relative statements (imports)
+    if (type === 'call' && node.children.length > 0) {
+      const methodName = node.children[0];
+      const methodText = code.slice(methodName.startIndex, methodName.endIndex);
+      if (methodText === 'require' || methodText === 'require_relative') {
+        const imp = this.extractRubyRequire(node, code);
+        if (imp) {
+          imports.push(imp);
+        }
+      }
+    }
   };
 
-  private extractPHPNodes = (..._args: Parameters<typeof this.extractJavaScriptNodes>): void => {
-    // TODO: Implement PHP-specific extraction
+  /**
+   * Extract Ruby require statement (import)
+   */
+  private extractRubyRequire = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract required file: require 'json' or require_relative './utils'
+      const requireMatch = /require(?:_relative)?\s+['"]([^'"]+)['"]/.exec(text);
+      const source = requireMatch ? requireMatch[1] : '';
+
+      return {
+        symbols: [],
+        source,
+        is_default: false,
+        is_namespace: true,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Ruby require', { error });
+      return null;
+    }
   };
 
-  private extractCSharpNodes = (..._args: Parameters<typeof this.extractJavaScriptNodes>): void => {
-    // TODO: Implement C#-specific extraction
+  /**
+   * Extract nodes from PHP syntax tree
+   */
+  private extractPHPNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    _exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract function declarations
+    if (type === 'function_definition') {
+      const func = this.extractFunction(node, code);
+      if (func) {
+        nodes.push(func);
+      }
+    }
+
+    // Extract method declarations
+    if (type === 'method_declaration') {
+      const method = this.extractFunction(node, code);
+      if (method) {
+        method.node_type = NodeType.Method;
+        nodes.push(method);
+      }
+    }
+
+    // Extract class declarations
+    if (type === 'class_declaration') {
+      const cls = this.extractClass(node, code);
+      if (cls) {
+        nodes.push(cls);
+      }
+    }
+
+    // Extract interface declarations
+    if (type === 'interface_declaration') {
+      const iface = this.extractInterface(node, code);
+      if (iface) {
+        nodes.push(iface);
+      }
+    }
+
+    // Extract trait declarations
+    if (type === 'trait_declaration') {
+      const trait = this.extractInterface(node, code);
+      if (trait) {
+        nodes.push(trait);
+      }
+    }
+
+    // Extract namespace use declarations (imports)
+    if (type === 'namespace_use_declaration') {
+      const imp = this.extractPHPUse(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
+  };
+
+  /**
+   * Extract PHP use statement (import)
+   */
+  private extractPHPUse = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract namespace: use App\Models\User;
+      const useMatch = /use\s+([^;]+);/.exec(text);
+      const source = useMatch ? useMatch[1].trim() : '';
+
+      // Check for alias: use App\Models\User as UserModel;
+      const isAlias = text.includes(' as ');
+
+      return {
+        symbols: [],
+        source,
+        is_default: false,
+        is_namespace: !isAlias,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract PHP use statement', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Extract nodes from C# syntax tree
+   */
+  private extractCSharpNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract method declarations
+    if (type === 'method_declaration' || type === 'constructor_declaration') {
+      const func = this.extractFunction(node, code);
+      if (func) {
+        func.node_type = type === 'constructor_declaration' ? NodeType.Method : NodeType.Function;
+        nodes.push(func);
+      }
+    }
+
+    // Extract property declarations
+    if (type === 'property_declaration') {
+      const prop = this.extractProperty(node, code);
+      if (prop) {
+        nodes.push(prop);
+      }
+    }
+
+    // Extract class declarations
+    if (type === 'class_declaration' || type === 'struct_declaration' || type === 'record_declaration') {
+      const cls = this.extractClass(node, code);
+      if (cls) {
+        nodes.push(cls);
+      }
+    }
+
+    // Extract interface declarations
+    if (type === 'interface_declaration') {
+      const iface = this.extractInterface(node, code);
+      if (iface) {
+        nodes.push(iface);
+      }
+    }
+
+    // Extract enum declarations
+    if (type === 'enum_declaration') {
+      const enumNode = this.extractEnum(node, code);
+      if (enumNode) {
+        nodes.push(enumNode);
+      }
+    }
+
+    // Extract using directives (imports)
+    if (type === 'using_directive') {
+      const imp = this.extractCSharpUsing(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
+
+    // C# doesn't have traditional exports - classes are accessible via namespaces
+    // We track public classes/methods as implicit exports
+    if (
+      (type === 'class_declaration' ||
+        type === 'interface_declaration' ||
+        type === 'struct_declaration' ||
+        type === 'enum_declaration') &&
+      this.isPublicMember(node, code)
+    ) {
+      const nameNode = node.childForFieldName('name');
+      if (nameNode) {
+        const name = code.slice(nameNode.startIndex, nameNode.endIndex);
+        exports.push({
+          symbols: [name],
+          is_default: false,
+          is_reexport: false,
+          line_number: node.startPosition.row + 1,
+        });
+      }
+    }
+  };
+
+  /**
+   * Extract property from C# syntax node
+   */
+  private extractProperty = (node: Parser.SyntaxNode, code: string): ParsedNode | null => {
+    try {
+      const nameNode = node.childForFieldName('name');
+      const name = nameNode ? code.slice(nameNode.startIndex, nameNode.endIndex) : '<anonymous>';
+
+      const typeNode = node.childForFieldName('type');
+      const returnType = typeNode ? code.slice(typeNode.startIndex, typeNode.endIndex) : undefined;
+
+      const docstring = this.extractDocstring(node, code);
+
+      return {
+        node_type: NodeType.Variable,
+        name,
+        start_line: node.startPosition.row + 1,
+        end_line: node.endPosition.row + 1,
+        code_text: code.slice(node.startIndex, node.endIndex),
+        return_type: returnType,
+        docstring,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract C# property', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Extract enum from C# syntax node
+   */
+  private extractEnum = (node: Parser.SyntaxNode, code: string): ParsedNode | null => {
+    try {
+      const nameNode = node.childForFieldName('name');
+      const name = nameNode ? code.slice(nameNode.startIndex, nameNode.endIndex) : '<anonymous>';
+
+      const docstring = this.extractDocstring(node, code);
+
+      return {
+        node_type: NodeType.Interface,
+        name,
+        start_line: node.startPosition.row + 1,
+        end_line: node.endPosition.row + 1,
+        code_text: code.slice(node.startIndex, node.endIndex),
+        docstring,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract C# enum', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Extract C# using directive (import)
+   */
+  private extractCSharpUsing = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract namespace: "using System.Collections.Generic;"
+      const namespaceMatch = /using\s+([^;]+);/.exec(text);
+      const source = namespaceMatch ? namespaceMatch[1].trim() : '';
+
+      // Check for alias: "using Json = System.Text.Json;"
+      const isAlias = text.includes('=');
+
+      return {
+        symbols: [],
+        source,
+        is_default: false,
+        is_namespace: !isAlias,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract C# using directive', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Check if C# member has public access modifier
+   */
+  private isPublicMember = (node: Parser.SyntaxNode, code: string): boolean => {
+    // Check for 'public' modifier in the node's text
+    const text = code.slice(node.startIndex, node.endIndex);
+    return /^\s*public\s+/.test(text);
+  };
+
+  /**
+   * Extract nodes from Kotlin syntax tree
+   */
+  private extractKotlinNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    _exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract function declarations
+    if (type === 'function_declaration') {
+      const func = this.extractFunction(node, code);
+      if (func) {
+        nodes.push(func);
+      }
+    }
+
+    // Extract class declarations
+    if (type === 'class_declaration') {
+      const cls = this.extractClass(node, code);
+      if (cls) {
+        nodes.push(cls);
+      }
+    }
+
+    // Extract interface declarations
+    if (type === 'interface_declaration') {
+      const iface = this.extractInterface(node, code);
+      if (iface) {
+        nodes.push(iface);
+      }
+    }
+
+    // Extract object declarations (Kotlin singleton)
+    if (type === 'object_declaration') {
+      const obj = this.extractClass(node, code);
+      if (obj) {
+        nodes.push(obj);
+      }
+    }
+
+    // Extract import directives
+    if (type === 'import_header') {
+      const imp = this.extractKotlinImport(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
+  };
+
+  /**
+   * Extract Kotlin import directive
+   */
+  private extractKotlinImport = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract import path: import com.example.app.MainActivity
+      const importMatch = /import\s+([^\s]+)/.exec(text);
+      const source = importMatch ? importMatch[1].trim() : '';
+
+      // Check for alias: import com.example.app.MainActivity as Main
+      const isAlias = text.includes(' as ');
+
+      return {
+        symbols: [],
+        source,
+        is_default: false,
+        is_namespace: !isAlias,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Kotlin import', { error });
+      return null;
+    }
   };
 
   /**

@@ -193,11 +193,176 @@ the embedding pipeline via Ollama, LLM-based summary generation, and database pe
 
 ---
 
+## Phase 3.2: Language Support Expansion
+
+**Status:** ✅ 100% Complete
+**Duration:** 1 day
+
+### Overview
+
+Expanded tree-sitter parser support from 8 to 12 programming languages, adding enterprise and mobile language support.
+
+### Checklist
+
+**New Language Parsers:**
+- [x] Add tree-sitter-c-sharp@0.21.0 to package.json
+- [x] Add tree-sitter-php@0.23.12 to package.json (compatible version)
+- [x] Add tree-sitter-ruby@0.21.0 to package.json
+- [x] Add tree-sitter-kotlin@0.3.8 to package.json
+
+**Parser Implementation:**
+- [x] Implement extractCSharpNodes() in parser.ts
+  - Classes, interfaces, structs, record declarations
+  - Methods, constructors, properties
+  - Enums with member extraction
+  - Using directives (imports)
+  - Public member detection for exports
+- [x] Implement extractPHPNodes() in parser.ts
+  - Function and method declarations
+  - Classes, interfaces, traits
+  - Namespace use declarations (imports)
+- [x] Implement extractRubyNodes() in parser.ts
+  - Methods and singleton methods
+  - Classes and modules
+  - require/require_relative statements (imports)
+- [x] Implement extractKotlinNodes() in parser.ts
+  - Functions and class declarations
+  - Interfaces and object declarations (singletons)
+  - Import directives
+
+**Code Quality:**
+- [x] Update LANGUAGE_PARSERS map with all 12 languages
+- [x] Document Swift fallback (build issues with tree-sitter-cli)
+- [x] Update parser.ts file header with 12-language list
+- [x] Fix ESLint violations (array types, unnecessary conditionals)
+- [x] Verify TypeScript compilation
+- [x] Verify build success
+
+**Documentation:**
+- [x] Update CLAUDE.md with 12-language support
+- [x] Update README.md with explicit language list
+- [x] Update docs/overview.md with categorized language list
+
+### Success Criteria
+
+- [x] All 12 languages parse correctly with tree-sitter
+- [x] C# public class/method detection working
+- [x] PHP namespace use statements extracted
+- [x] Ruby require/require_relative imports parsed
+- [x] Kotlin object declarations (singletons) detected
+- [x] Swift documented to use regex fallback parsing
+- [x] npm install succeeds with compatible versions
+- [x] npm run build succeeds (479.6kb)
+- [x] npm run lint passes with 0 errors
+
+### Output
+
+**Supported Languages (12 total):**
+- **Web/Backend:** TypeScript, JavaScript, Python, Java, PHP, Ruby, Go, Rust
+- **Systems:** C, C++, C#
+- **Mobile:** Kotlin
+- **Fallback:** Swift (and other languages use regex-based parsing)
+
+---
+
+## Phase 3.3: Project Structure Detection
+
+**Status:** ✅ 100% Complete
+**Duration:** 1 day
+
+### Overview
+
+Enhanced service detection to support Docker Compose, serverless platforms, and mobile frameworks with full configuration extraction.
+
+### Checklist
+
+**Docker Compose Detection:**
+- [x] Add js-yaml@4.1.1 dependency to package.json
+- [x] Replace regex-based parsing with yaml.load()
+- [x] Implement DockerServiceConfig interface
+  - image, build, ports, environment
+  - volumes, networks, depends_on, command
+- [x] Implement enrichServicesWithDockerData()
+  - Extract full Docker configuration
+  - Parse port mappings (host:container)
+  - Extract service dependencies from depends_on
+  - Store in service.dockerConfig
+- [x] Add DockerService to ServiceType enum
+- [x] Update parseDockerCompose() with proper YAML parsing
+
+**Serverless Framework Detection:**
+- [x] Implement ServerlessConfig interface
+- [x] Implement ServerlessFunctionInfo interface
+- [x] Implement detectServerlessFramework() supporting:
+  - Serverless Framework (serverless.yml)
+  - Vercel Functions (vercel.json)
+  - Netlify Functions (netlify.toml)
+  - AWS SAM (template.yaml)
+  - AWS CDK (cdk.json)
+- [x] Implement extractServerlessFunctions() for Serverless Framework
+- [x] Implement extractVercelFunctions() for Vercel
+- [x] Add Serverless to ServiceType enum
+
+**Mobile Framework Detection:**
+- [x] Implement MobileConfig interface
+- [x] Implement detectMobileFramework() supporting:
+  - React Native (app.json with displayName)
+  - Expo (app.json with expo config)
+  - Flutter (pubspec.yaml)
+  - Capacitor (capacitor.config.*)
+  - Ionic (ionic.config.json)
+- [x] Extract platform information (ios, android, web)
+- [x] Extract app identifiers and package names
+- [x] Add Mobile to ServiceType enum
+
+**Code Quality:**
+- [x] Fix ESLint array type violations (Array<T> → T[])
+- [x] Fix type guards for YAML parsing (check for arrays)
+- [x] Fix string coercion with proper type checks
+- [x] Update service-detector.ts file header with new capabilities
+- [x] Verify TypeScript compilation
+- [x] Verify build success
+
+**Documentation:**
+- [x] Update CLAUDE.md with Docker/serverless/mobile detection
+- [x] Update service-detector.ts with comprehensive JSDoc
+
+### Success Criteria
+
+- [x] Docker Compose parsed with full service configuration
+- [x] Service ports extracted correctly (e.g., "8080:80" → port: 8080)
+- [x] Service dependencies extracted from depends_on
+- [x] 5 serverless platforms detected
+  - Serverless Framework, Vercel, Netlify, AWS SAM, AWS CDK
+- [x] 5 mobile frameworks detected
+  - React Native, Expo, Flutter, Capacitor, Ionic
+- [x] Service type classification includes docker, serverless, mobile
+- [x] js-yaml dependency properly integrated
+- [x] All type guards properly implemented
+- [x] npm run lint passes with 0 errors
+
+### Output
+
+**Enhanced Service Detection:**
+- Docker Compose services with full config
+- Serverless functions with routes and handlers
+- Mobile projects with platform information
+- Service type classification (7 types total)
+
+**New Service Types:**
+- DockerService (from docker-compose.yml)
+- Serverless (from serverless configs)
+- Mobile (from mobile framework configs)
+
+---
+
 ## Dependencies
 
 - [x] Phase 1 complete (config, database client, Ollama client, logger)
 - [x] Phase 2 complete (file discovery, parsing, chunking, metadata extraction)
-- [ ] Ollama running with models available (mxbai-embed-large, qwen2.5-coder:1.5b)
+- [x] Ollama running with models installed (bge-m3:567m, qwen2.5-coder:7b)
+
+**Note:** bge-m3:567m is SUPERIOR to mxbai-embed-large (92.5% vs 82.5% accuracy, 8K vs 512 token context). qwen2.5-coder:7b provides high-quality summaries with deeper code understanding.
 
 ---
 

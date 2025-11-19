@@ -27,7 +27,11 @@ contextual code, optimized for Claude Code integration.
 
 ### Supported Languages
 
-TypeScript, JavaScript, Python, Java, Go, Rust, C, C++, and more via tree-sitter parsers.
+**12 languages** with full tree-sitter parsing:
+- **Web/Backend:** TypeScript, JavaScript, Python, Java, PHP, Ruby, Go, Rust
+- **Systems:** C, C++, C#
+- **Mobile:** Kotlin
+- **Fallback:** Swift and other languages use regex-based parsing
 
 **Tree-sitter Version:** 0.21.1 (Node.js bindings) **Language Parsers:** 0.21.x - 0.22.x (all
 verified compatible) **API Reference:** See [docs/syntax.md](./syntax.md) for complete tree-sitter
@@ -71,7 +75,7 @@ j **`code_chunks`** - Core embeddings table
 
 ### Key Schema Features
 
-- **Vector dimensions:** 1024 (mxbai-embed-large)
+- **Vector dimensions:** 1024 (bge-m3:567m)
 - **Indexes:** HNSW for production (15-45 min build time on 1M vectors with high accuracy settings)
 - **Performance tuning:** `hnsw.ef_search = 300` (accuracy priority)
 - **Index construction:** `hnsw.ef_construction = 200` (higher quality index, longer build)
@@ -1251,8 +1255,8 @@ npm run build
 
    # Ollama
    curl https://ollama.ai/install.sh | sh
-   ollama pull mxbai-embed-large
-   ollama pull qwen2.5-coder:1.5b
+   ollama pull bge-m3:567m
+   ollama pull qwen2.5-coder:7b
    ```
 
 2. **Set up database:**
@@ -1289,7 +1293,7 @@ settings have sensible defaults but can be overridden.
       "command": "npx",
       "args": ["-y", "@gianged/cindex"],
       "env": {
-        "EMBEDDING_MODEL": "mxbai-embed-large",
+        "EMBEDDING_MODEL": "bge-m3:567m",
         "EMBEDDING_DIMENSIONS": "1024",
         "SUMMARY_MODEL": "qwen2.5-coder:3b",
         "OLLAMA_HOST": "http://localhost:11434",
@@ -1312,7 +1316,7 @@ settings have sensible defaults but can be overridden.
 
 #### Model Configuration
 
-- **`EMBEDDING_MODEL`** (default: `mxbai-embed-large`)
+- **`EMBEDDING_MODEL`** (default: `bge-m3:567m`)
   - Ollama embedding model to use
   - Alternatives: `nomic-embed-text`, `mxbai-embed-large`, custom models
   - Must match `EMBEDDING_DIMENSIONS`
@@ -1320,12 +1324,13 @@ settings have sensible defaults but can be overridden.
 - **`EMBEDDING_DIMENSIONS`** (default: `1024`)
   - Vector dimensions for embeddings
   - Must match the model's output dimensions
+  - `bge-m3:567m`: 1024 (default, superior accuracy)
   - `mxbai-embed-large`: 1024
   - `nomic-embed-text`: 768
 
-- **`SUMMARY_MODEL`** (default: `qwen2.5-coder:1.5b`)
+- **`SUMMARY_MODEL`** (default: `qwen2.5-coder:7b`)
   - Ollama model for generating file summaries
-  - Options: `qwen2.5-coder:1.5b` (fast), `qwen2.5-coder:3b` (accurate), `qwen2.5-coder:7b` (best)
+  - Options: `qwen2.5-coder:1.5b` (speed alternative), `qwen2.5-coder:3b` (balanced), `qwen2.5-coder:7b` (best, default)
   - Set to empty string to disable LLM summaries (use rule-based)
 
 - **`OLLAMA_HOST`** (default: `http://localhost:11434`)
@@ -1383,9 +1388,9 @@ settings have sensible defaults but can be overridden.
 
 ```json
 "env": {
-  "EMBEDDING_MODEL": "mxbai-embed-large",
+  "EMBEDDING_MODEL": "bge-m3:567m",
   "EMBEDDING_DIMENSIONS": "1024",
-  "SUMMARY_MODEL": "qwen2.5-coder:3b",
+  "SUMMARY_MODEL": "qwen2.5-coder:7b",
   "HNSW_EF_SEARCH": "300",
   "HNSW_EF_CONSTRUCTION": "200",
   "SIMILARITY_THRESHOLD": "0.75",
@@ -1397,7 +1402,7 @@ settings have sensible defaults but can be overridden.
 
 ```json
 "env": {
-  "EMBEDDING_MODEL": "mxbai-embed-large",
+  "EMBEDDING_MODEL": "bge-m3:567m",
   "EMBEDDING_DIMENSIONS": "1024",
   "SUMMARY_MODEL": "qwen2.5-coder:1.5b",
   "HNSW_EF_SEARCH": "100",
@@ -1424,7 +1429,7 @@ settings have sensible defaults but can be overridden.
 ```json
 "env": {
   "OLLAMA_HOST": "http://192.168.1.50:11434",
-  "EMBEDDING_MODEL": "mxbai-embed-large",
+  "EMBEDDING_MODEL": "bge-m3:567m",
   "SUMMARY_MODEL": "qwen2.5-coder:7b"
 }
 ```
@@ -1537,9 +1542,26 @@ function authenticateUser(username: string, password: string): Promise<User> {
 }
 SYMBOLS: authenticateUser, User, AuthError"
 
-2. Generate embedding via Ollama (mxbai-embed-large)
+2. Generate embedding via Ollama (bge-m3:567m)
 3. Store in appropriate table
 ```
+
+---
+
+### Phase 3 Completion Status ✅
+
+**Completed Features:**
+- ✅ LLM-based file summaries (qwen2.5-coder)
+- ✅ Embedding generation (mxbai-embed-large, 1024 dims)
+- ✅ Symbol extraction and indexing
+- ✅ API contract parsing (REST/GraphQL/gRPC)
+- ✅ **12-language support** with tree-sitter (TS, JS, Python, Java, Go, Rust, C, C++, C#, PHP, Ruby, Kotlin)
+- ✅ **Project structure detection** (Docker Compose, serverless frameworks, mobile projects)
+- ✅ Database persistence with batch optimization
+- ✅ Progress tracking with ETA calculation
+- ✅ Pipeline orchestration (Phases 1-3)
+
+Phase 3 is **100% complete**. Next: Phase 4 (Multi-Stage Retrieval).
 
 ---
 
@@ -2125,17 +2147,20 @@ function authenticateUser(username: string, password: string): Promise<User> {
 
 ### Embedding Model
 
-**mxbai-embed-large via Ollama**
+**bge-m3:567m via Ollama (SUPERIOR accuracy)**
 
 - 1024 dimensions
-- Good code understanding
+- 92.5% vs 82.5% accuracy over mxbai-embed-large
+- 8K token context window (vs 512)
+- Multilingual support, optimized for code
 - Local, no API costs
 
 ### File Summary Generation
 
 **LLM-based (primary) + Rule-based fallback**
 
-- LLM: qwen2.5-coder:1.5b or 3b on first 100 lines (preferred, high quality)
+- LLM: qwen2.5-coder:7b on first 100 lines (preferred, best quality)
+- Alternatives: qwen2.5-coder:3b (balanced), qwen2.5-coder:1.5b (speed)
 - Rule-based fallback: Extract top comment + exports (only if LLM unavailable)
 - Single sentence format: "This file does X"
 - Accuracy priority: Always use LLM when available
@@ -2450,9 +2475,10 @@ Alternative: Batch progress updates every 10k vectors
 
 3. **Ollama Setup**
    - Install Ollama
-   - Pull embedding model: `ollama pull mxbai-embed-large` (or configured model)
-   - Pull LLM (required for accuracy): `ollama pull qwen2.5-coder:1.5b` or `qwen2.5-coder:3b`
-   - Note: 3b model has better accuracy, 1.5b is faster
+   - Pull embedding model: `ollama pull bge-m3:567m` (superior accuracy, recommended)
+   - Pull LLM (required for accuracy): `ollama pull qwen2.5-coder:7b` (best quality)
+   - Alternatives: `qwen2.5-coder:3b` (balanced), `qwen2.5-coder:1.5b` (speed)
+   - Note: bge-m3:567m provides 92.5% vs 82.5% accuracy over mxbai-embed-large
 
 4. **TypeScript Environment** (for development)
    - Clone: `git clone https://github.com/gianged/cindex.git`
@@ -2485,11 +2511,11 @@ Alternative: Batch progress updates every 10k vectors
 4. **Chunking pipeline** (Day 3-4)
    - Tree-sitter integration for TypeScript/JavaScript
    - Regex fallback for unsupported languages
-   - LLM-based file summary generation (using configured SUMMARY_MODEL)
+   - LLM-based file summary generation (qwen2.5-coder:7b by default)
    - Token counting for chunks
 
 5. **Embedding generation** (Day 5)
-   - Ollama API integration (using configured EMBEDDING_MODEL)
+   - Ollama API integration (bge-m3:567m by default)
    - Batch processing (handle 100+ files)
    - Progress tracking
 
@@ -2581,9 +2607,9 @@ Alternative: Batch progress updates every 10k vectors
 
 **Accuracy-Optimized Defaults:**
 
-- `EMBEDDING_MODEL` (default: 'mxbai-embed-large')
+- `EMBEDDING_MODEL` (default: 'bge-m3:567m')
 - `EMBEDDING_DIMENSIONS` (default: 1024)
-- `SUMMARY_MODEL` (default: 'qwen2.5-coder:1.5b')
+- `SUMMARY_MODEL` (default: 'qwen2.5-coder:7b')
 - `OLLAMA_HOST` (default: 'http://localhost:11434')
 - `POSTGRES_HOST` (default: 'localhost')
 - `POSTGRES_PORT` (default: 5432)
@@ -2617,7 +2643,8 @@ This plan now comprehensively addresses all edge cases for production use with 1
 **Accuracy-First Configuration:**
 
 - All defaults optimized for maximum accuracy over speed
-- LLM-based summaries (qwen2.5-coder:1.5b/3b)
+- LLM-based summaries (qwen2.5-coder:7b, best quality)
+- Superior embeddings (bge-m3:567m, 92.5% vs 82.5% accuracy)
 - Higher HNSW quality settings (ef_search=300, ef_construction=200)
 - Stricter similarity thresholds (0.75 retrieval, 0.92 dedup)
 - More retrieval candidates (15 files, 25 snippets, 100 chunks)

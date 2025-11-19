@@ -43,7 +43,8 @@ export class EmbeddingGenerator {
       const embedding = await this.ollamaClient.generateEmbedding(
         this.config.model,
         enhancedText,
-        this.config.dimensions
+        this.config.dimensions,
+        this.config.context_window
       );
 
       // Validate dimensions (OllamaClient also validates, but double-check)
@@ -114,7 +115,8 @@ export class EmbeddingGenerator {
       this.config.model,
       enhancedTexts,
       this.config.dimensions,
-      concurrency
+      concurrency,
+      this.config.context_window
     );
 
     // Map embeddings to chunk results
@@ -203,7 +205,12 @@ export class EmbeddingGenerator {
     const startTime = Date.now();
 
     try {
-      const embedding = await this.ollamaClient.generateEmbedding(this.config.model, text, this.config.dimensions);
+      const embedding = await this.ollamaClient.generateEmbedding(
+        this.config.model,
+        text,
+        this.config.dimensions,
+        this.config.context_window
+      );
 
       // Validate dimensions
       if (embedding.length !== this.config.dimensions) {

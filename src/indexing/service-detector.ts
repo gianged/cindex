@@ -1,16 +1,34 @@
 /**
- * Service Detector: Microservice Architecture Support
+ * Service Detector: Microservice Architecture & Project Type Support
  *
- * Detects and analyzes microservice boundaries:
- * - Service directory detection (services/*, apps/*)
- * - docker-compose.yml parsing
- * - Service type classification (REST, GraphQL, gRPC, library)
+ * Detects and analyzes service boundaries and project structures:
+ *
+ * **Microservices:**
+ * - Service directory detection (services/*, apps/*, packages/*)
+ * - Docker Compose parsing with full configuration extraction
+ * - Service type classification (REST, GraphQL, gRPC, library, docker, serverless, mobile)
  * - API endpoint extraction from code
  * - API spec file parsing (OpenAPI, GraphQL, gRPC Proto)
+ *
+ * **Serverless:**
+ * - Serverless Framework (serverless.yml)
+ * - Vercel Functions (vercel.json)
+ * - Netlify Functions (netlify.toml)
+ * - AWS SAM (template.yaml)
+ * - AWS CDK (cdk.json)
+ *
+ * **Mobile:**
+ * - React Native (app.json)
+ * - Expo (app.json with expo config)
+ * - Flutter (pubspec.yaml)
+ * - Capacitor (capacitor.config.*)
+ * - Ionic (ionic.config.json)
  */
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+
+import * as yaml from 'js-yaml';
 
 import { logger } from '@utils/logger';
 import { type PackageJsonInfo } from '@/types/workspace';
@@ -23,6 +41,9 @@ export enum ServiceType {
   GraphQL = 'graphql',
   GRPC = 'grpc',
   Library = 'library',
+  DockerService = 'docker_service',
+  Serverless = 'serverless',
+  Mobile = 'mobile',
   Unknown = 'unknown',
 }
 
@@ -70,6 +91,95 @@ export interface ServiceInfo {
 
   /** Framework/technology detected */
   framework?: string;
+
+  /** Docker Compose configuration */
+  dockerConfig?: DockerServiceConfig;
+
+  /** Serverless configuration */
+  serverlessConfig?: ServerlessConfig;
+
+  /** Mobile project configuration */
+  mobileConfig?: MobileConfig;
+}
+
+/**
+ * Docker Compose service configuration
+ */
+export interface DockerServiceConfig {
+  /** Container image */
+  image?: string;
+
+  /** Build configuration */
+  build?: string | Record<string, unknown>;
+
+  /** Exposed ports (format: "host:container") */
+  ports?: string[];
+
+  /** Environment variables */
+  environment?: Record<string, string> | string[];
+
+  /** Volumes */
+  volumes?: string[];
+
+  /** Networks */
+  networks?: string[];
+
+  /** Service dependencies */
+  depends_on?: string[];
+
+  /** Command override */
+  command?: string | string[];
+}
+
+/**
+ * Serverless framework configuration
+ */
+export interface ServerlessConfig {
+  /** Serverless provider (aws, vercel, netlify, etc.) */
+  provider: string;
+
+  /** Functions defined */
+  functions?: ServerlessFunctionInfo[];
+
+  /** Framework (serverless, vercel, netlify, etc.) */
+  framework?: string;
+}
+
+/**
+ * Serverless function information
+ */
+export interface ServerlessFunctionInfo {
+  /** Function name */
+  name: string;
+
+  /** Handler path */
+  handler?: string;
+
+  /** Runtime */
+  runtime?: string;
+
+  /** HTTP route/trigger */
+  route?: string;
+
+  /** Event triggers */
+  events?: string[];
+}
+
+/**
+ * Mobile project configuration
+ */
+export interface MobileConfig {
+  /** Mobile framework (react-native, flutter, expo, etc.) */
+  framework: string;
+
+  /** Target platforms */
+  platforms?: string[];
+
+  /** App identifier */
+  appId?: string;
+
+  /** Package name */
+  packageName?: string;
 }
 
 /**
@@ -215,7 +325,9 @@ export class ServiceDetector {
   };
 
   /**
-   * Parse docker-compose.yml file
+   * Parse docker-compose.yml file using js-yaml
+   *
+   * @returns Parsed Docker Compose configuration with services
    */
   public parseDockerCompose = async (): Promise<Record<string, unknown> | null> => {
     const dockerComposePaths = [
@@ -231,25 +343,18 @@ export class ServiceDetector {
       try {
         const content = await fs.readFile(filePath, 'utf-8');
 
-        // Simple YAML parsing for services section
-        const servicesMatch = /services:\s*\n((?:\s+\w+:[\s\S]*?(?=\n\S|\n$))+)/.exec(content);
+        // Parse YAML using js-yaml
+        const parsed = yaml.load(content);
 
-        if (!servicesMatch) {
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           continue;
         }
 
-        // Parse service names
-        const serviceLines = servicesMatch[1].split('\n');
-        const services: Record<string, unknown> = {};
+        // Extract services section
+        const services = (parsed as Record<string, unknown>).services as Record<string, unknown> | undefined;
 
-        let currentService: string | null = null;
-
-        for (const line of serviceLines) {
-          const serviceMatch = /^\s+(\w+):/.exec(line);
-          if (serviceMatch) {
-            currentService = serviceMatch[1];
-            services[currentService] = {};
-          }
+        if (!services || typeof services !== 'object') {
+          continue;
         }
 
         logger.info('Parsed docker-compose.yml', {
@@ -260,7 +365,7 @@ export class ServiceDetector {
         return services;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          logger.warn('Error reading docker-compose file', { file: filename, error });
+          logger.warn('Error parsing docker-compose file', { file: filename, error });
         }
       }
     }
@@ -338,13 +443,74 @@ export class ServiceDetector {
 
   /**
    * Enrich services with docker-compose data
+   *
+   * Extracts ports, networks, volumes, dependencies from Docker Compose configuration
    */
   private enrichServicesWithDockerData = (services: ServiceInfo[], dockerConfig: Record<string, unknown>): void => {
-    // Match services by name
     for (const service of services) {
-      if (dockerConfig[service.id] ?? dockerConfig[service.name]) {
-        // Docker Compose data available for this service
-        logger.debug('Enriched service with docker-compose data', { service: service.name });
+      const dockerService = (dockerConfig[service.id] ?? dockerConfig[service.name]) as
+        | Record<string, unknown>
+        | undefined;
+
+      if (dockerService && typeof dockerService === 'object') {
+        // Extract Docker configuration
+        const dockerServiceConfig: DockerServiceConfig = {};
+
+        if (dockerService.image && typeof dockerService.image === 'string') {
+          dockerServiceConfig.image = dockerService.image;
+        }
+
+        if (dockerService.build) {
+          dockerServiceConfig.build = dockerService.build as string | Record<string, unknown>;
+        }
+
+        if (Array.isArray(dockerService.ports)) {
+          dockerServiceConfig.ports = dockerService.ports.map((p) => String(p));
+          // Extract port numbers for service info
+          service.ports = dockerServiceConfig.ports
+            .map((p) => {
+              const match = /(\d+):/.exec(p);
+              return match ? parseInt(match[1], 10) : 0;
+            })
+            .filter((p) => p > 0);
+        }
+
+        if (dockerService.environment) {
+          dockerServiceConfig.environment = dockerService.environment as Record<string, string> | string[];
+        }
+
+        if (Array.isArray(dockerService.volumes)) {
+          dockerServiceConfig.volumes = dockerService.volumes.map((v) => String(v));
+        }
+
+        if (Array.isArray(dockerService.networks)) {
+          dockerServiceConfig.networks = dockerService.networks.map((n) => String(n));
+        } else if (dockerService.networks && typeof dockerService.networks === 'object') {
+          dockerServiceConfig.networks = Object.keys(dockerService.networks);
+        }
+
+        if (dockerService.depends_on) {
+          if (Array.isArray(dockerService.depends_on)) {
+            dockerServiceConfig.depends_on = dockerService.depends_on.map((d) => String(d));
+            service.serviceDependencies = dockerServiceConfig.depends_on;
+          } else if (typeof dockerService.depends_on === 'object') {
+            dockerServiceConfig.depends_on = Object.keys(dockerService.depends_on);
+            service.serviceDependencies = dockerServiceConfig.depends_on;
+          }
+        }
+
+        if (dockerService.command) {
+          dockerServiceConfig.command = dockerService.command as string | string[];
+        }
+
+        service.dockerConfig = dockerServiceConfig;
+        service.type = ServiceType.DockerService;
+
+        logger.debug('Enriched service with docker-compose data', {
+          service: service.name,
+          ports: service.ports,
+          dependencies: service.serviceDependencies,
+        });
       }
     }
   };
@@ -353,6 +519,25 @@ export class ServiceDetector {
    * Classify service type based on detected patterns
    */
   public classifyServiceType = async (service: ServiceInfo): Promise<ServiceType> => {
+    // If already classified as Docker service, keep it
+    if (service.type === ServiceType.DockerService) {
+      return ServiceType.DockerService;
+    }
+
+    // Check for serverless frameworks
+    const serverlessConfig = await this.detectServerlessFramework(service.path);
+    if (serverlessConfig) {
+      service.serverlessConfig = serverlessConfig;
+      return ServiceType.Serverless;
+    }
+
+    // Check for mobile frameworks
+    const mobileConfig = await this.detectMobileFramework(service.path);
+    if (mobileConfig) {
+      service.mobileConfig = mobileConfig;
+      return ServiceType.Mobile;
+    }
+
     // Check for API contract files
     if (service.apiContracts) {
       for (const contract of service.apiContracts) {
@@ -401,6 +586,226 @@ export class ServiceDetector {
     }
 
     return ServiceType.Unknown;
+  };
+
+  /**
+   * Detect serverless framework configuration
+   *
+   * Detects: Serverless Framework, Vercel, Netlify, AWS SAM, AWS CDK
+   */
+  private detectServerlessFramework = async (servicePath: string): Promise<ServerlessConfig | null> => {
+    // Serverless Framework (serverless.yml)
+    const serverlessYmlPath = path.join(servicePath, 'serverless.yml');
+    try {
+      const content = await fs.readFile(serverlessYmlPath, 'utf-8');
+      const parsed = yaml.load(content) as Record<string, unknown>;
+
+      const functions = this.extractServerlessFunctions(parsed);
+      const providerConfig = parsed.provider as Record<string, unknown> | undefined;
+      const provider = (providerConfig?.name as string | undefined) ?? 'aws';
+
+      return {
+        provider,
+        framework: 'serverless',
+        functions,
+      };
+    } catch {
+      // Not Serverless Framework
+    }
+
+    // Vercel (vercel.json)
+    const vercelJsonPath = path.join(servicePath, 'vercel.json');
+    try {
+      const content = await fs.readFile(vercelJsonPath, 'utf-8');
+      const parsed = parseJsonToRecord(content);
+
+      const functions = this.extractVercelFunctions(parsed);
+
+      return {
+        provider: 'vercel',
+        framework: 'vercel',
+        functions,
+      };
+    } catch {
+      // Not Vercel
+    }
+
+    // Netlify (netlify.toml)
+    const netlifyTomlPath = path.join(servicePath, 'netlify.toml');
+    try {
+      await fs.access(netlifyTomlPath);
+
+      return {
+        provider: 'netlify',
+        framework: 'netlify',
+      };
+    } catch {
+      // Not Netlify
+    }
+
+    // AWS SAM (template.yaml)
+    const samTemplatePath = path.join(servicePath, 'template.yaml');
+    try {
+      const content = await fs.readFile(samTemplatePath, 'utf-8');
+      const parsed = yaml.load(content) as Record<string, unknown>;
+
+      if (parsed.AWSTemplateFormatVersion) {
+        return {
+          provider: 'aws',
+          framework: 'sam',
+        };
+      }
+    } catch {
+      // Not AWS SAM
+    }
+
+    // AWS CDK (cdk.json)
+    const cdkJsonPath = path.join(servicePath, 'cdk.json');
+    try {
+      await fs.access(cdkJsonPath);
+
+      return {
+        provider: 'aws',
+        framework: 'cdk',
+      };
+    } catch {
+      // Not AWS CDK
+    }
+
+    return null;
+  };
+
+  /**
+   * Extract functions from Serverless Framework config
+   */
+  private extractServerlessFunctions = (config: Record<string, unknown>): ServerlessFunctionInfo[] => {
+    const functions: ServerlessFunctionInfo[] = [];
+    const functionsConfig = config.functions as Record<string, Record<string, unknown>> | undefined;
+
+    if (!functionsConfig) return functions;
+
+    for (const [name, funcConfig] of Object.entries(functionsConfig)) {
+      const events = funcConfig.events as Record<string, unknown>[] | undefined;
+      const httpEvent = events?.find((e) => e.http);
+
+      functions.push({
+        name,
+        handler: funcConfig.handler as string | undefined,
+        runtime: funcConfig.runtime as string | undefined,
+        route: httpEvent ? String((httpEvent.http as Record<string, unknown>).path) : undefined,
+        events: events?.map((e) => Object.keys(e)[0] ?? ''),
+      });
+    }
+
+    return functions;
+  };
+
+  /**
+   * Extract functions from Vercel config
+   */
+  private extractVercelFunctions = (config: Record<string, unknown>): ServerlessFunctionInfo[] => {
+    const functions: ServerlessFunctionInfo[] = [];
+    const rewrites = config.rewrites as Record<string, unknown>[] | undefined;
+
+    if (rewrites) {
+      for (const rewrite of rewrites) {
+        const destination = rewrite.destination;
+        const source = rewrite.source;
+
+        if (typeof destination === 'string' && destination.startsWith('/api/')) {
+          functions.push({
+            name: destination.replace('/api/', ''),
+            route: typeof source === 'string' ? source : destination,
+          });
+        }
+      }
+    }
+
+    return functions;
+  };
+
+  /**
+   * Detect mobile framework configuration
+   *
+   * Detects: React Native, Expo, Flutter, Capacitor, Ionic
+   */
+  private detectMobileFramework = async (servicePath: string): Promise<MobileConfig | null> => {
+    // React Native (app.json with displayName)
+    const appJsonPath = path.join(servicePath, 'app.json');
+    try {
+      const content = await fs.readFile(appJsonPath, 'utf-8');
+      const parsed = parseJsonToRecord(content);
+
+      if (parsed.expo) {
+        // Expo project
+        const expoConfig = parsed.expo as Record<string, unknown>;
+        const platforms = expoConfig.platforms;
+        return {
+          framework: 'expo',
+          platforms: Array.isArray(platforms) ? platforms : ['ios', 'android'],
+          appId: expoConfig.slug as string | undefined,
+          packageName: expoConfig.android
+            ? ((expoConfig.android as Record<string, unknown>).package as string)
+            : undefined,
+        };
+      }
+
+      if (parsed.displayName) {
+        // React Native project
+        return {
+          framework: 'react-native',
+          platforms: ['ios', 'android'],
+          appId: parsed.name as string | undefined,
+        };
+      }
+    } catch {
+      // Not React Native or Expo
+    }
+
+    // Flutter (pubspec.yaml)
+    const pubspecPath = path.join(servicePath, 'pubspec.yaml');
+    try {
+      const content = await fs.readFile(pubspecPath, 'utf-8');
+      const parsed = yaml.load(content) as Record<string, unknown>;
+
+      if (parsed.flutter) {
+        return {
+          framework: 'flutter',
+          platforms: ['ios', 'android', 'web'],
+          packageName: parsed.name as string | undefined,
+        };
+      }
+    } catch {
+      // Not Flutter
+    }
+
+    // Capacitor (capacitor.config.ts or capacitor.config.json)
+    const capacitorPaths = ['capacitor.config.ts', 'capacitor.config.json'];
+    for (const filename of capacitorPaths) {
+      try {
+        await fs.access(path.join(servicePath, filename));
+        return {
+          framework: 'capacitor',
+          platforms: ['ios', 'android', 'web'],
+        };
+      } catch {
+        continue;
+      }
+    }
+
+    // Ionic (ionic.config.json)
+    const ionicConfigPath = path.join(servicePath, 'ionic.config.json');
+    try {
+      await fs.access(ionicConfigPath);
+      return {
+        framework: 'ionic',
+        platforms: ['ios', 'android', 'web'],
+      };
+    } catch {
+      // Not Ionic
+    }
+
+    return null;
   };
 
   /**

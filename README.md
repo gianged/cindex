@@ -2,61 +2,141 @@
 
 **Semantic code search and context retrieval for large codebases**
 
-A Model Context Protocol (MCP) server that provides intelligent code search and context retrieval for Claude Code. Handles 1M+ lines of code with accuracy-first design.
+A Model Context Protocol (MCP) server that provides intelligent code search and context retrieval
+for Claude Code. Handles 1M+ lines of code with accuracy-first design.
 
 ## Features
 
-- 🔍 **Semantic Search** - Vector embeddings for intelligent code discovery
-- 🎯 **Multi-Stage Retrieval** - Files → chunks → symbols → imports
-- ⚡ **Incremental Indexing** - Only re-index changed files
-- 🔧 **Configurable Models** - Swap embedding/LLM models via env vars
-- 🌳 **Import Chain Analysis** - Automatic dependency resolution
-- 🎨 **Deduplication** - Remove duplicate utility functions
-- 📊 **Large Codebase Support** - Efficiently handles 1M+ LoC
-- 🤖 **Claude Code Integration** - Native MCP server
-- 🎓 **Accuracy-First** - Default settings optimized for relevance
-- 🗄️ **Flexible Database** - PostgreSQL with configurable connection
+- **Semantic Search** - Vector embeddings for intelligent code discovery
+- **Multi-Stage Retrieval** - Files → chunks → symbols → imports
+- **Incremental Indexing** - Only re-index changed files
+- **Configurable Models** - Swap embedding/LLM models via env vars
+- **Import Chain Analysis** - Automatic dependency resolution
+- **Deduplication** - Remove duplicate utility functions
+- **Large Codebase Support** - Efficiently handles 1M+ LoC
+- **Claude Code Integration** - Native MCP server
+- **Accuracy-First** - Default settings optimized for relevance
+- **Flexible Database** - PostgreSQL with configurable connection
 
 ## Supported Languages
 
-TypeScript, JavaScript, Python, Java, Go, Rust, C, C++, and more via tree-sitter parsers.
+**12 languages** with full tree-sitter parsing: TypeScript, JavaScript, Python, Java, Go, Rust, C,
+C++, C#, PHP, Ruby, Kotlin. Swift and other languages use regex fallback parsing.
 
-## Quick Start
+## Prerequisites
 
-### Prerequisites
+Before installing cindex, you need:
+
+### 1. PostgreSQL with pgvector
+
+PostgreSQL 16+ with pgvector extension for vector similarity search:
 
 ```bash
-# PostgreSQL with pgvector
+# Ubuntu/Debian
 sudo apt install postgresql-16 postgresql-16-pgvector
 
-# Ollama
+# macOS
+brew install postgresql@16 pgvector
+
+# Start PostgreSQL
+sudo systemctl start postgresql  # Linux
+brew services start postgresql@16  # macOS
+```
+
+### 2. Ollama with Models
+
+Ollama for local LLM inference with two models:
+
+**Embedding Model** (for vector generation):
+
+```bash
+# Install Ollama
 curl https://ollama.ai/install.sh | sh
-ollama pull mxbai-embed-large
-ollama pull qwen2.5-coder:1.5b
+
+# Pull embedding model (bge-m3:567m recommended)
+ollama pull bge-m3:567m
 ```
 
-### Installation
+**Coding Model** (for file summaries and analysis):
 
 ```bash
-npm install -g @gianged/cindex
+# Pull coding model (qwen2.5-coder:7b recommended)
+ollama pull qwen2.5-coder:7b
+
+# Alternative for faster indexing (lower quality):
+# ollama pull qwen2.5-coder:1.5b
 ```
 
-Or use with npx (no installation):
+**Model Options:**
 
-```bash
-npx @gianged/cindex
-```
+- **Embedding**: bge-m3:567m (1024 dims, 8K context) - Best accuracy
+- **Summary**: qwen2.5-coder:7b (32K context) - High quality, RTX 4060+ recommended
+- **Summary**: qwen2.5-coder:3b (32K context) - Balanced
+- **Summary**: qwen2.5-coder:1.5b (32K context) - Fast indexing, lower quality
+
+## Installation
 
 ### Database Setup
 
+Create and initialize the cindex database:
+
 ```bash
+# Create database
 createdb cindex_rag_codebase
-psql cindex_rag_codebase < node_modules/@gianged/cindex/database.sql
+
+# Initialize schema (after installing cindex - see next section)
 ```
 
-### Configure MCP
+### Install MCP Server
 
-Add to `~/.claude.json` (user scope - all projects):
+Add cindex to Claude Code using the CLI. You can install for personal use (user scope) or share with
+your team (project scope).
+
+#### Quick Install (Personal Use)
+
+Install for all your projects:
+
+```bash
+claude mcp add cindex --scope user --transport stdio \
+  --env POSTGRES_PASSWORD="your_password" \
+  -- npx -y @gianged/cindex
+```
+
+#### Team Install (Shared via Git)
+
+Install for the current project (creates `.mcp.json` in project root):
+
+```bash
+claude mcp add cindex --scope project --transport stdio \
+  --env POSTGRES_PASSWORD="your_password" \
+  -- npx -y @gianged/cindex
+```
+
+**Note:** For project scope, set `POSTGRES_PASSWORD` as an environment variable on your system and
+reference it in the command. Never commit actual secrets to version control.
+
+#### Custom Configuration
+
+Add additional environment variables using multiple `--env` flags:
+
+```bash
+claude mcp add cindex --scope user --transport stdio \
+  --env POSTGRES_PASSWORD="your_password" \
+  --env POSTGRES_HOST="localhost" \
+  --env POSTGRES_DB="cindex_rag_codebase" \
+  --env EMBEDDING_MODEL="bge-m3:567m" \
+  --env SUMMARY_MODEL="qwen2.5-coder:7b" \
+  -- npx -y @gianged/cindex
+```
+
+See [Environment Variables](#environment-variables) section below for all available configuration
+options.
+
+#### Manual Configuration (Alternative)
+
+If you prefer to manually edit configuration files, you can add cindex to:
+
+**User Scope** (`~/.claude.json`):
 
 ```json
 {
@@ -72,11 +152,37 @@ Add to `~/.claude.json` (user scope - all projects):
 }
 ```
 
-**Configuration Scopes:**
-- **User scope** (shown above): `~/.claude.json` - Available across all your projects
-- **Project scope**: `.mcp.json` in project root - Team-shared via git, allows environment variable expansion
+**Project Scope** (`.mcp.json` in project root):
 
-> **Note:** MCP servers are only recognized in `~/.claude.json` (user scope) or `.mcp.json` (project scope). Other config files are ignored for MCP.
+```json
+{
+  "mcpServers": {
+    "cindex": {
+      "command": "npx",
+      "args": ["-y", "@gianged/cindex"],
+      "env": {
+        "POSTGRES_HOST": "${POSTGRES_HOST:-localhost}",
+        "POSTGRES_PORT": "${POSTGRES_PORT:-5432}",
+        "POSTGRES_DB": "${POSTGRES_DB:-cindex_rag_codebase}",
+        "POSTGRES_USER": "${POSTGRES_USER:-postgres}",
+        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}"
+      }
+    }
+  }
+}
+```
+
+### Initialize Database Schema
+
+After configuring MCP, initialize the database schema:
+
+```bash
+# Download schema file
+curl -o database.sql https://raw.githubusercontent.com/gianged/cindex/main/database.sql
+
+# Apply schema
+psql cindex_rag_codebase < database.sql
+```
 
 ### Start Using
 
@@ -84,126 +190,235 @@ Add to `~/.claude.json` (user scope - all projects):
 2. Use the `index_repository` tool to index your codebase
 3. Use `search_codebase` to find relevant code
 
-## Configuration
+## Environment Variables
 
-All settings are configurable via environment variables in MCP config:
+All configuration is done through environment variables in your MCP config file.
 
-### Model Settings
+### Model Configuration
 
-```json
-"env": {
-  "EMBEDDING_MODEL": "mxbai-embed-large",
-  "EMBEDDING_DIMENSIONS": "1024",
-  "SUMMARY_MODEL": "qwen2.5-coder:3b",
-  "OLLAMA_HOST": "http://localhost:11434"
-}
-```
+| Variable                   | Default                  | Range         | Description                                      |
+| -------------------------- | ------------------------ | ------------- | ------------------------------------------------ |
+| `EMBEDDING_MODEL`          | `bge-m3:567m`            | -             | Ollama embedding model for vector generation     |
+| `EMBEDDING_DIMENSIONS`     | `1024`                   | 1-4096        | Vector dimensions (must match model output)      |
+| `EMBEDDING_CONTEXT_WINDOW` | `4096`                   | 512-131072    | Token limit for embedding model                  |
+| `SUMMARY_MODEL`            | `qwen2.5-coder:7b`       | -             | Ollama model for file summaries                  |
+| `SUMMARY_CONTEXT_WINDOW`   | `4096`                   | 512-131072    | Token limit for summary model                    |
+| `OLLAMA_HOST`              | `http://localhost:11434` | -             | Ollama API endpoint                              |
+| `OLLAMA_TIMEOUT`           | `30000`                  | 1000-300000   | Request timeout in milliseconds                  |
 
-### Database Settings
+**Context Window Notes:**
 
-```json
-"env": {
-  "POSTGRES_HOST": "localhost",
-  "POSTGRES_PORT": "5432",
-  "POSTGRES_DB": "cindex_rag_codebase",
-  "POSTGRES_USER": "postgres",
-  "POSTGRES_PASSWORD": "your_password"
-}
-```
+- Default 4096 matches Ollama's default and is sufficient (cindex uses first 100 lines per file)
+- Higher values = more VRAM usage + slower inference
+- qwen2.5-coder:7b supports up to 32K tokens
+- bge-m3:567m supports up to 8K tokens
+- Increase only if you encounter issues with large files
 
-### Accuracy/Performance Tuning
+### Database Configuration
 
-```json
-"env": {
-  "HNSW_EF_SEARCH": "300",              // Higher = more accurate, slower
-  "HNSW_EF_CONSTRUCTION": "200",        // Higher quality index
-  "SIMILARITY_THRESHOLD": "0.75",       // Higher = stricter matching
-  "DEDUP_THRESHOLD": "0.92"             // Lower = more deduplication
-}
-```
+| Variable                   | Default               | Range   | Description                     |
+| -------------------------- | --------------------- | ------- | ------------------------------- |
+| `POSTGRES_HOST`            | `localhost`           | -       | PostgreSQL server hostname      |
+| `POSTGRES_PORT`            | `5432`                | 1-65535 | PostgreSQL server port          |
+| `POSTGRES_DB`              | `cindex_rag_codebase` | -       | Database name                   |
+| `POSTGRES_USER`            | `postgres`            | -       | Database user                   |
+| `POSTGRES_PASSWORD`        | _required_            | -       | Database password (must be set) |
+| `POSTGRES_MAX_CONNECTIONS` | `10`                  | 1-100   | Maximum connection pool size    |
 
-## MCP Tools
+### Performance Tuning
 
-**13 Tools Available:**
-- **4 Core Tools:** search_codebase, get_file_context, find_symbol_definition, index_repository
-- **9 Specialized Tools:** list_indexed_repos, list_workspaces, list_services, get_workspace_context, get_service_context, find_cross_workspace_usages, find_cross_service_calls, search_api_contracts, delete_repository
+| Variable               | Default | Range     | Description                                          |
+| ---------------------- | ------- | --------- | ---------------------------------------------------- |
+| `HNSW_EF_SEARCH`       | `300`   | 10-1000   | HNSW search quality (higher = more accurate, slower) |
+| `HNSW_EF_CONSTRUCTION` | `200`   | 10-1000   | HNSW index quality (higher = better index)           |
+| `SIMILARITY_THRESHOLD` | `0.75`  | 0.0-1.0   | Minimum similarity for retrieval                     |
+| `DEDUP_THRESHOLD`      | `0.92`  | 0.0-1.0   | Similarity threshold for deduplication               |
+| `IMPORT_DEPTH`         | `3`     | 1-10      | Maximum import chain traversal depth                 |
+| `WORKSPACE_DEPTH`      | `2`     | 1-10      | Maximum workspace dependency depth                   |
+| `SERVICE_DEPTH`        | `1`     | 1-10      | Maximum service dependency depth                     |
 
-See [docs/overview.md Section 1.5](./docs/overview.md) for complete tool documentation including multi-project/monorepo/microservice support.
+### Indexing Configuration
 
----
+| Variable           | Default | Range       | Description                        |
+| ------------------ | ------- | ----------- | ---------------------------------- |
+| `MAX_FILE_SIZE`    | `5000`  | 100-100000  | Maximum file size in lines         |
+| `INCLUDE_MARKDOWN` | `false` | true/false  | Include markdown files in indexing |
 
-### `search_codebase`
+### Feature Flags
 
-Semantic search with multi-stage retrieval
+| Variable                        | Default | Range      | Description                             |
+| ------------------------------- | ------- | ---------- | --------------------------------------- |
+| `ENABLE_WORKSPACE_DETECTION`    | `true`  | true/false | Detect monorepo workspaces              |
+| `ENABLE_SERVICE_DETECTION`      | `true`  | true/false | Detect microservices                    |
+| `ENABLE_MULTI_REPO`             | `false` | true/false | Enable multi-repository support         |
+| `ENABLE_API_ENDPOINT_DETECTION` | `true`  | true/false | Parse API contracts (REST/GraphQL/gRPC) |
 
-- Natural language queries
-- Code snippet search
-- Returns files, locations, imports, and code snippets
+## Example Configurations
 
-### `get_file_context`
+### Minimal Configuration
 
-Get full context for a specific file
-
-- Include callers/callees
-- Dependency analysis
-- Import chain traversal
-
-### `find_symbol_definition`
-
-Locate definitions and usages
-
-- Function/class/variable lookup
-- Usage tracking across codebase
-
-### `index_repository`
-
-Index or re-index a codebase
-
-- Incremental updates (default)
-- Language filtering
-- Progress tracking
-
-**Repository Types:**
-- `monolithic` - Single application codebase
-- `monorepo` - Multi-package workspace (Turborepo, Nx, pnpm)
-- `microservice` - Individual service repository
-- `library` - Shared library (your own packages)
-- `reference` - External framework for learning (NestJS, React, Vue)
-- `documentation` - Markdown documentation repository
-
-**Reference Repository Indexing:**
-
-When indexing external frameworks or libraries for learning:
+Only the required password:
 
 ```json
 {
-  "repo_type": "reference",
-  "version": "v10.3.0",
-  "force_reindex": false,
-  "metadata": {
-    "upstream_url": "https://github.com/nestjs/nest",
-    "indexed_for": "learning"
+  "mcpServers": {
+    "cindex": {
+      "command": "npx",
+      "args": ["-y", "@gianged/cindex"],
+      "env": {
+        "POSTGRES_PASSWORD": "your_password"
+      }
+    }
   }
 }
 ```
 
-**Search with References:**
+### Full Configuration
+
+All available settings with defaults shown:
 
 ```json
 {
-  "query": "how to implement guards",
-  "scope": "global",
-  "include_references": true,
-  "include_documentation": true,
-  "max_reference_results": 5,
-  "max_documentation_results": 3
+  "mcpServers": {
+    "cindex": {
+      "command": "npx",
+      "args": ["-y", "@gianged/cindex"],
+      "env": {
+        "EMBEDDING_MODEL": "bge-m3:567m",
+        "EMBEDDING_DIMENSIONS": "1024",
+        "EMBEDDING_CONTEXT_WINDOW": "4096",
+        "SUMMARY_MODEL": "qwen2.5-coder:7b",
+        "SUMMARY_CONTEXT_WINDOW": "4096",
+        "OLLAMA_HOST": "http://localhost:11434",
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_DB": "cindex_rag_codebase",
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "your_password",
+        "HNSW_EF_SEARCH": "300",
+        "HNSW_EF_CONSTRUCTION": "200",
+        "SIMILARITY_THRESHOLD": "0.75",
+        "DEDUP_THRESHOLD": "0.92"
+      }
+    }
+  }
 }
 ```
 
-- `include_references` - Include reference repos in search (default: false)
-- `include_documentation` - Include documentation repos (default: false)
-- Reference results have lower priority (0.6 vs 1.0 for your code)
-- Documentation results have lowest priority (0.5)
+### Speed-First Configuration
+
+For faster indexing with lower quality:
+
+```json
+{
+  "mcpServers": {
+    "cindex": {
+      "command": "npx",
+      "args": ["-y", "@gianged/cindex"],
+      "env": {
+        "POSTGRES_PASSWORD": "your_password",
+        "SUMMARY_MODEL": "qwen2.5-coder:1.5b",
+        "SUMMARY_CONTEXT_WINDOW": "4096",
+        "HNSW_EF_SEARCH": "100",
+        "HNSW_EF_CONSTRUCTION": "64",
+        "SIMILARITY_THRESHOLD": "0.70",
+        "DEDUP_THRESHOLD": "0.95"
+      }
+    }
+  }
+}
+```
+
+**Performance:**
+
+- **Indexing**: 500-1000 files/min (vs 300-600 files/min default)
+- **Query Time**: <500ms (vs <800ms default)
+- **Relevance**: >85% in top 10 results (vs >92% default)
+
+## Managing Configuration
+
+### Verify Installation
+
+List all installed MCP servers:
+
+```bash
+claude mcp list
+```
+
+View cindex configuration:
+
+```bash
+claude mcp get cindex
+```
+
+### Update Configuration
+
+To update environment variables, remove and re-add with new settings:
+
+```bash
+claude mcp remove cindex
+claude mcp add cindex --scope user --transport stdio \
+  --env POSTGRES_PASSWORD="your_password" \
+  --env SUMMARY_MODEL="qwen2.5-coder:3b" \
+  -- npx -y @gianged/cindex
+```
+
+### Switch to Speed-First Mode
+
+For faster indexing with lower quality, use these settings:
+
+```bash
+claude mcp remove cindex
+claude mcp add cindex --scope user --transport stdio \
+  --env POSTGRES_PASSWORD="your_password" \
+  --env SUMMARY_MODEL="qwen2.5-coder:1.5b" \
+  --env HNSW_EF_SEARCH="100" \
+  --env HNSW_EF_CONSTRUCTION="64" \
+  --env SIMILARITY_THRESHOLD="0.70" \
+  --env DEDUP_THRESHOLD="0.95" \
+  -- npx -y @gianged/cindex
+```
+
+**Performance:**
+
+- **Indexing**: 500-1000 files/min (vs 300-600 files/min default)
+- **Query Time**: <500ms (vs <800ms default)
+- **Relevance**: >85% in top 10 results (vs >92% default)
+
+### Remove Server
+
+```bash
+claude mcp remove cindex
+```
+
+## MCP Tools
+
+**Status: 1 of 13 tools implemented (Phase 5 in progress)**
+
+### Core Tools (Planned)
+
+- `search_codebase` - Semantic search with multi-stage retrieval
+- `get_file_context` - Full context for specific file with dependencies
+- `find_symbol_definition` - Locate function/class/variable definitions
+- `index_repository` - Index or re-index codebase
+
+### Specialized Tools (Planned)
+
+- `list_indexed_repos` - List all indexed repositories
+- `list_workspaces` - List monorepo workspaces
+- `list_services` - List detected microservices
+- `get_workspace_context` - Get workspace-specific context
+- `get_service_context` - Get service-specific context
+- `find_cross_workspace_usages` - Find cross-workspace dependencies
+- `find_cross_service_calls` - Find cross-service API calls
+- `search_api_contracts` - Search API definitions (REST/GraphQL/gRPC)
+
+### Implemented Tools
+
+- `delete_repository` - Delete indexed repository data
+
+See [docs/overview.md](./docs/overview.md) for complete tool documentation including
+multi-project/monorepo/microservice support.
 
 ## Architecture
 
@@ -224,7 +439,7 @@ When indexing external frameworks or libraries for learning:
 5. Embedding generation (configurable model)
 6. PostgreSQL + pgvector storage
 
-## Performance
+## Performance Characteristics
 
 ### Accuracy-First Mode (Default)
 
@@ -235,27 +450,62 @@ When indexing external frameworks or libraries for learning:
 
 ### Speed-First Mode
 
-Set these environment variables:
-
-```json
-"env": {
-  "SUMMARY_MODEL": "qwen2.5-coder:1.5b",
-  "HNSW_EF_SEARCH": "100",
-  "SIMILARITY_THRESHOLD": "0.70",
-  "DEDUP_THRESHOLD": "0.95"
-}
-```
-
 - **Indexing**: 500-1000 files/min
 - **Query Time**: <500ms
 - **Relevance**: >85% in top 10 results
 
-## Requirements
+## System Requirements
 
 - **Node.js** 22+ (for MCP server)
 - **PostgreSQL** 16+ with pgvector extension
-- **Ollama** (for embeddings and LLM)
+- **Ollama** with models installed
 - **Disk Space**: ~1GB per 100k LoC indexed
+- **RAM**: 8GB minimum (16GB+ recommended for large codebases)
+- **GPU**: Optional but recommended (RTX 3060+ for qwen2.5-coder:7b)
+
+## Troubleshooting
+
+### "Vector dimension mismatch"
+
+Update `EMBEDDING_DIMENSIONS` in MCP config to match your model, then update vector dimensions in
+`database.sql`.
+
+### "Connection refused" to PostgreSQL
+
+Check `POSTGRES_HOST` and `POSTGRES_PORT` in MCP config. Verify PostgreSQL is running:
+
+```bash
+sudo systemctl status postgresql  # Linux
+brew services list  # macOS
+```
+
+### "Model not found" in Ollama
+
+Pull the required models:
+
+```bash
+ollama pull bge-m3:567m
+ollama pull qwen2.5-coder:7b
+```
+
+Verify models are available:
+
+```bash
+ollama list
+```
+
+### Slow indexing
+
+- Use smaller summary model: `qwen2.5-coder:1.5b` instead of `7b`
+- Reduce `HNSW_EF_CONSTRUCTION` to `64`
+- Enable incremental indexing (default)
+
+### Low accuracy results
+
+- Increase `HNSW_EF_SEARCH` to `300-400`
+- Raise `SIMILARITY_THRESHOLD` to `0.75-0.80`
+- Use better summary model: `qwen2.5-coder:3b` or `7b`
+- Lower `DEDUP_THRESHOLD` to `0.90-0.92`
 
 ## Documentation
 
@@ -277,49 +527,29 @@ npm run build
 npm test
 ```
 
+## Implementation Status
+
+- Phase 1 (100%) - Database schema & type system
+- Phase 2 (100%) - File discovery, parsing, chunking, workspace/service detection
+- Phase 3 (100%) - Embeddings, summaries, API parsing, 12-language support, Docker/serverless/mobile
+  detection
+- Phase 4 (0%) - Multi-stage retrieval pipeline (planned)
+- Phase 5 (8%) - MCP tools (1 of 13 implemented)
+- Phase 6 (0%) - Incremental indexing, optimization (planned)
+
+**Overall: ~58% complete**
+
 ## License
 
 MIT
 
 ## Author
 
-**gianged** - Full-stack developer and IT infrastructure specialist
+**gianged** - Yup, it's me
 
 ## Contributing
 
 Contributions welcome! Please open an issue or PR on GitHub.
-
-## Troubleshooting
-
-### "Vector dimension mismatch"
-
-Update `EMBEDDING_DIMENSIONS` in MCP config to match your model, then update `database.sql` vector dimensions.
-
-### "Connection refused" to PostgreSQL
-
-Check `POSTGRES_HOST` and `POSTGRES_PORT` in MCP config. Default is `localhost:5432`.
-
-### "Model not found" in Ollama
-
-Pull the required models:
-
-```bash
-ollama pull mxbai-embed-large
-ollama pull qwen2.5-coder:1.5b
-```
-
-### Slow indexing
-
-- Use smaller summary model: `qwen2.5-coder:1.5b` instead of `3b`
-- Reduce `HNSW_EF_CONSTRUCTION` to `64`
-- Enable incremental indexing (default)
-
-### Low accuracy results
-
-- Increase `HNSW_EF_SEARCH` to `300-400`
-- Raise `SIMILARITY_THRESHOLD` to `0.75-0.80`
-- Use better summary model: `qwen2.5-coder:3b` or `7b`
-- Lower `DEDUP_THRESHOLD` to `0.90-0.92`
 
 ## Acknowledgments
 

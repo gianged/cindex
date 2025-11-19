@@ -133,7 +133,7 @@ export class FileSummaryGenerator {
     const prompt = this.buildLLMPrompt(file, truncatedContent);
 
     // Generate summary via Ollama
-    const summaryText = await this.ollamaClient.generateSummary(this.config.model, prompt);
+    const summaryText = await this.ollamaClient.generateSummary(this.config.model, prompt, this.config.context_window);
 
     // Validate and clean summary
     const cleanedSummary = this.validateAndCleanSummary(summaryText);

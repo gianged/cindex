@@ -32,6 +32,7 @@ export interface EmbeddingConfig {
   model: string; // Default: 'mxbai-embed-large'
   dimensions: number; // Default: 1024
   batch_size: number; // Default: 100
+  context_window?: number; // Default: 4096 (tokens, optional)
 }
 
 /**
@@ -41,6 +42,7 @@ export interface SummaryConfig {
   model: string; // Default: 'qwen2.5-coder:1.5b'
   method: 'llm' | 'rule-based'; // Default: 'llm'
   max_lines: number; // Default: 100 (first N lines for LLM)
+  context_window?: number; // Default: 4096 (tokens, optional)
 }
 
 /**
@@ -180,7 +182,9 @@ export const ENV_VARS = {
   // Models
   EMBEDDING_MODEL: 'EMBEDDING_MODEL',
   EMBEDDING_DIMENSIONS: 'EMBEDDING_DIMENSIONS',
+  EMBEDDING_CONTEXT_WINDOW: 'EMBEDDING_CONTEXT_WINDOW',
   SUMMARY_MODEL: 'SUMMARY_MODEL',
+  SUMMARY_CONTEXT_WINDOW: 'SUMMARY_CONTEXT_WINDOW',
   OLLAMA_HOST: 'OLLAMA_HOST',
   OLLAMA_TIMEOUT: 'OLLAMA_TIMEOUT',
 
@@ -222,11 +226,13 @@ export const DEFAULT_CONFIG: CindexConfig = {
     model: 'bge-m3:567m',
     dimensions: 1024,
     batch_size: 100,
+    context_window: 4096,
   },
   summary: {
-    model: 'deepcoder:14b',
+    model: 'qwen2.5-coder:7b',
     method: 'llm',
     max_lines: 100,
+    context_window: 4096,
   },
   ollama: {
     host: 'http://localhost:11434',
