@@ -1,14 +1,14 @@
 # Phase 4: Multi-Stage Retrieval System (7-Stage Pipeline)
 
-**Estimated Duration:** 4-5 days
-**Priority:** Critical - Core RAG functionality
-**Status:** ❌ Not Started (0%)
+**Estimated Duration:** 4-5 days **Priority:** Critical - Core RAG functionality **Status:** ✅
+Implementation Complete (100%) - All 8 Stages Done, Testing Pending
 
 ---
 
 ## Overview
 
-Implement the **7-stage retrieval pipeline** that progressively narrows from broad file-level search to precise code locations with dependency context. This delivers:
+Implement the **7-stage retrieval pipeline** that progressively narrows from broad file-level search
+to precise code locations with dependency context. This delivers:
 
 - **Stage 0:** Scope Filtering (repo/workspace/service filtering for multi-project)
 - **Stage 1:** File-level semantic search
@@ -19,145 +19,226 @@ Implement the **7-stage retrieval pipeline** that progressively narrows from bro
 - **Stage 6:** Deduplication (architecture-aware)
 - **Stage 7:** Context assembly with token counting
 
-**Note:** Stages 0 and 5 are specifically for multi-project architectures. Single-repo search uses the 5-stage pipeline (1→2→3→4→6).
+**Note:** Stages 0 and 5 are specifically for multi-project architectures. Single-repo search uses
+the 5-stage pipeline (1→2→3→4→6).
 
 ---
 
 ## Checklist
 
-### 0. Stage 0: Scope Filtering (Multi-Project)
+### 0. Stage 0: Scope Filtering (Multi-Project) ✅
 
-- [ ] Create `src/retrieval/scope-filter.ts` for multi-project filtering
-- [ ] Implement repository filtering: WHERE repo_id IN (...), support exclude_repos[]
-- [ ] Implement service filtering: WHERE service_id IN (...), WHERE service_type IN (...), support exclude_services[]
-- [ ] Implement workspace filtering: WHERE workspace_id IN (...), support exclude_workspaces[]
-- [ ] Support cross-repo search: if cross_repo=true, search across all indexed repositories
-- [ ] Implement scope modes: 'global' (all repos), 'repository' (single repo), 'service' (single service), 'boundary-aware' (start point + dependencies)
-- [ ] For boundary-aware: use start_repo/start_service as entry point, expand based on cross_repo_dependencies and workspace_dependencies tables
-- [ ] **[REFERENCE REPOS]** Implement reference/documentation exclusion by default: exclude repo_type IN ('reference', 'documentation') unless explicitly requested
-- [ ] **[REFERENCE REPOS]** Add filter parameters: `include_references` (default: false), `include_documentation` (default: false)
-- [ ] **[REFERENCE REPOS]** Support explicit exclusion: `exclude_repo_types[]` parameter to block specific types
-- [ ] **[REFERENCE REPOS]** Update `determineSearchScope()`: check include_references flag, check include_documentation flag, build exclusion list, apply to repo filter query
-- [ ] Apply scope filters to all downstream stages (1-6)
-- [ ] Output: ScopeFilter{repo_ids[], service_ids[], workspace_ids[], mode, cross_repo, include_references?, include_documentation?, exclude_repo_types[], boundary_config{max_depth, follow_dependencies}}
+- [x] Create `src/retrieval/scope-filter.ts` for multi-project filtering
+- [x] Implement repository filtering: WHERE repo_id IN (...), support exclude_repos[]
+- [x] Implement service filtering: WHERE service_id IN (...), WHERE service_type IN (...), support
+      exclude_services[]
+- [x] Implement workspace filtering: WHERE workspace_id IN (...), support exclude_workspaces[]
+- [x] Support cross-repo search: if cross_repo=true, search across all indexed repositories
+- [x] Implement scope modes: 'global' (all repos), 'repository' (single repo), 'service' (single
+      service), 'boundary-aware' (start point + dependencies)
+- [x] For boundary-aware: use start_repo/start_service as entry point, expand based on
+      cross_repo_dependencies and workspace_dependencies tables
+- [x] **[REFERENCE REPOS]** Implement reference/documentation exclusion by default: exclude
+      repo_type IN ('reference', 'documentation') unless explicitly requested
+- [x] **[REFERENCE REPOS]** Add filter parameters: `include_references` (default: false),
+      `include_documentation` (default: false)
+- [x] **[REFERENCE REPOS]** Support explicit exclusion: `exclude_repo_types[]` parameter to block
+      specific types
+- [x] **[REFERENCE REPOS]** Update `determineSearchScope()`: check include_references flag, check
+      include_documentation flag, build exclusion list, apply to repo filter query
+- [x] Apply scope filters to all downstream stages (1-6)
+- [x] Output: ScopeFilter{repo_ids[], service_ids[], workspace_ids[], mode, cross_repo,
+      include_references?, include_documentation?, exclude_repo_types[], boundary_config{max_depth,
+      follow_dependencies}}
 
-### 1. Query Processing
+### 1. Query Processing ✅
 
-- [ ] Create `src/retrieval/query-processor.ts` for query handling
-- [ ] Detect query type: natural language vs code snippet
-- [ ] Preprocess query: trim whitespace, normalize text, remove special characters (except in code)
-- [ ] Generate query embedding via Ollama (1024 dimensions)
-- [ ] Cache query embeddings: same query text = reuse embedding, 1 hour TTL
-- [ ] Output: QueryEmbedding{query_text, query_type, embedding (1024 dims), generation_time_ms}
+- [x] Create `src/retrieval/query-processor.ts` for query handling
+- [x] Detect query type: natural language vs code snippet
+- [x] Preprocess query: trim whitespace, normalize text, remove special characters (except in code)
+- [x] Generate query embedding via Ollama (1024 dimensions)
+- [x] Cache query embeddings: same query text = reuse embedding, 1 hour TTL
+- [x] Output: QueryEmbedding{query_text, query_type, embedding (1024 dims), generation_time_ms}
 
-### 2. Stage 1: File-Level Retrieval
+### 2. Stage 1: File-Level Retrieval ✅
 
-- [ ] Create `src/retrieval/file-retrieval.ts` for broad file search
-- [ ] Implement SQL query: SELECT from code_files, calculate cosine similarity `1 - (summary_embedding <=> query_embedding)`, WHERE similarity > SIMILARITY_THRESHOLD (0.70), ORDER BY similarity DESC, LIMIT max_files (default 15)
-- [ ] **[MONOREPO/MICROSERVICE]** Add workspace/service filtering: WHERE workspace_id IN (...), WHERE service_id IN (...), WHERE repo_id IN (...), support exclude filters
-- [ ] Return relevant files: file_path, file_summary, language, line_count, imports[], exports[], similarity score
-- [ ] **[MONOREPO/MICROSERVICE]** Include context in results: workspace_id, package_name, service_id, repo_id
-- [ ] Rank files by relevance (descending)
-- [ ] Output: RelevantFile{file_path, file_summary, language, line_count, imports, exports, similarity, workspace_id?, package_name?, service_id?, repo_id?}
+- [x] Create `src/retrieval/file-retrieval.ts` for broad file search
+- [x] Implement SQL query: SELECT from code_files, calculate cosine similarity
+      `1 - (summary_embedding <=> query_embedding)`, WHERE similarity > SIMILARITY_THRESHOLD (0.70),
+      ORDER BY similarity DESC, LIMIT max_files (default 15)
+- [x] **[MONOREPO/MICROSERVICE]** Add workspace/service filtering: WHERE workspace_id IN (...),
+      WHERE service_id IN (...), WHERE repo_id IN (...), support exclude filters
+- [x] Return relevant files: file_path, file_summary, language, line_count, imports[], exports[],
+      similarity score
+- [x] **[MONOREPO/MICROSERVICE]** Include context in results: workspace_id, package_name,
+      service_id, repo_id
+- [x] Rank files by relevance (descending)
+- [x] Output: RelevantFile{file_path, file_summary, language, line_count, imports, exports,
+      similarity, workspace_id?, package_name?, service_id?, repo_id?}
 
-### 3. Stage 2: Chunk-Level Retrieval
+### 3. Stage 2: Chunk-Level Retrieval ✅
 
-- [ ] Create `src/retrieval/chunk-retrieval.ts` for precise chunk search
-- [ ] Implement SQL query: SELECT from code_chunks, WHERE file_path IN (top files from Stage 1), AND similarity > 0.75 (higher than Stage 1), AND chunk_type != 'file_summary', ORDER BY similarity DESC, LIMIT 100 (before deduplication)
-- [ ] **[MONOREPO/MICROSERVICE]** Apply workspace/service scope: if workspace_scope='strict', only chunks from same workspace; if service_scope='strict', only chunks from same service
-- [ ] Return relevant chunks: chunk_id, file_path, chunk_content, chunk_type, start_line, end_line, token_count, metadata, similarity score
-- [ ] **[MONOREPO/MICROSERVICE]** Include context: workspace_id, package_name, service_id, repo_id
-- [ ] Rank chunks by relevance
-- [ ] Output: RelevantChunk{chunk_id, file_path, chunk_content, chunk_type, start_line, end_line, token_count, metadata, similarity, workspace_id?, package_name?, service_id?, repo_id?}
+- [x] Create `src/retrieval/chunk-retrieval.ts` for precise chunk search
+- [x] Implement SQL query: SELECT from code_chunks, WHERE file_path IN (top files from Stage 1), AND
+      similarity > 0.75 (higher than Stage 1), AND chunk_type != 'file_summary', ORDER BY similarity
+      DESC, LIMIT 100 (before deduplication)
+- [x] **[MONOREPO/MICROSERVICE]** Apply workspace/service scope: if workspace_scope='strict', only
+      chunks from same workspace; if service_scope='strict', only chunks from same service
+- [x] Return relevant chunks: chunk_id, file_path, chunk_content, chunk_type, start_line, end_line,
+      token_count, metadata, similarity score
+- [x] **[MONOREPO/MICROSERVICE]** Include context: workspace_id, package_name, service_id, repo_id
+- [x] Rank chunks by relevance
+- [x] Output: RelevantChunk{chunk_id, file_path, chunk_content, chunk_type, start_line, end_line,
+      token_count, metadata, similarity, workspace_id?, package_name?, service_id?, repo_id?}
 
-### 4. Stage 3: Symbol Resolution
+### 4. Stage 3: Symbol Resolution ✅
 
-- [ ] Create `src/retrieval/symbol-resolver.ts` for dependency resolution
-- [ ] Extract symbols from chunk metadata: dependencies (imported/used symbols), function names, class names
-- [ ] **[MONOREPO]** Resolve workspace imports: use workspace_aliases table to resolve @workspace/* imports to actual file paths
-- [ ] Implement SQL query: SELECT from code_symbols, WHERE symbol_name IN (extracted symbols), AND scope = 'exported', ORDER BY symbol_name
-- [ ] **[MONOREPO]** Distinguish internal vs external: mark is_internal=true for workspace symbols, is_internal=false for external
-- [ ] Return resolved symbols: symbol_name, symbol_type, file_path, line_number, definition, scope
-- [ ] **[MONOREPO/MICROSERVICE]** Include context: workspace_id, service_id, is_internal flag
-- [ ] Output: ResolvedSymbol{symbol_name, symbol_type, file_path, line_number, definition, scope, workspace_id?, service_id?, is_internal?}
+- [x] Create `src/retrieval/symbol-resolver.ts` for dependency resolution
+- [x] Extract symbols from chunk metadata: dependencies (imported/used symbols), function names,
+      class names
+- [x] **[MONOREPO]** Resolve workspace imports: use workspace_aliases table to resolve @workspace/\*
+      imports to actual file paths
+- [x] Implement SQL query: SELECT from code_symbols, WHERE symbol_name IN (extracted symbols), AND
+      scope = 'exported', ORDER BY symbol_name
+- [x] **[MONOREPO]** Distinguish internal vs external: mark is_internal=true for workspace symbols,
+      is_internal=false for external
+- [x] Return resolved symbols: symbol_name, symbol_type, file_path, line_number, definition, scope
+- [x] **[MONOREPO/MICROSERVICE]** Include context: workspace_id, service_id, is_internal flag
+- [x] Output: ResolvedSymbol{symbol_name, symbol_type, file_path, line_number, definition, scope,
+      workspace_id?, service_id?, is_internal?}
 
-### 5. Stage 4: Import Chain Expansion
+### 5. Stage 4: Import Chain Expansion ✅
 
-- [ ] Create `src/retrieval/import-expander.ts` for dependency graph building
-- [ ] Select top N files (N=5-10) from Stage 1 for import expansion
-- [ ] **[MONOREPO/MICROSERVICE]** Configure depth per boundary type: workspace_depth (default: 2), service_depth (default: 1), import_depth (default: 3)
-- [ ] **[MONOREPO/MICROSERVICE]** Implement boundary-aware expansion: if workspace_scope='strict', don't cross workspace boundaries; if service_scope='strict', don't cross service boundaries
-- [ ] Traverse imports recursively: depth 1 (direct imports), depth 2 (second-order), depth 3 (third-order, stop here)
-- [ ] For each file: extract imports from code_files.imports, filter to internal imports (in indexed repo), fetch file summary, track visited files
-- [ ] **[MONOREPO]** Resolve workspace imports: use workspace_aliases to expand @workspace/* imports
-- [ ] Detect circular imports: use Set for visited files, skip if already visited, mark as circular in metadata
-- [ ] Mark truncated chains: depth limit reached (>3), external dependency (not in repo), boundary crossed
-- [ ] **[MONOREPO/MICROSERVICE]** Track boundary crossings: mark cross_workspace=true, cross_service=true when boundaries crossed
-- [ ] Output: ImportChain{file_path, imported_from (parent), depth (0-3), file_summary, exports[], circular flag, truncated flag, cross_workspace?, cross_service?, workspace_id?, service_id?}
+- [x] Create `src/retrieval/import-expander.ts` for dependency graph building
+- [x] Select top N files (N=5-10) from Stage 1 for import expansion
+- [x] **[MONOREPO/MICROSERVICE]** Configure depth per boundary type: workspace_depth (default: 2),
+      service_depth (default: 1), import_depth (default: 3)
+- [x] **[MONOREPO/MICROSERVICE]** Implement boundary-aware expansion: if workspace_scope='strict',
+      don't cross workspace boundaries; if service_scope='strict', don't cross service boundaries
+- [x] Traverse imports recursively: depth 1 (direct imports), depth 2 (second-order), depth 3
+      (third-order, stop here)
+- [x] For each file: extract imports from code_files.imports, filter to internal imports (in indexed
+      repo), fetch file summary, track visited files
+- [x] **[MONOREPO]** Resolve workspace imports: use workspace_aliases to expand @workspace/\*
+      imports
+- [x] Detect circular imports: use Set for visited files, skip if already visited, mark as circular
+      in metadata
+- [x] Mark truncated chains: depth limit reached (>3), external dependency (not in repo), boundary
+      crossed
+- [x] **[MONOREPO/MICROSERVICE]** Track boundary crossings: mark cross_workspace=true,
+      cross_service=true when boundaries crossed
+- [x] Output: ImportChain{file_path, imported_from (parent), depth (0-3), file_summary, exports[],
+      circular flag, truncated flag, cross_workspace?, cross_service?, workspace_id?, service_id?}
 
 ### 6. Stage 5: API Contract Enrichment (Multi-Project)
 
-- [ ] Create `src/retrieval/api-enricher.ts` for API contract context
-- [ ] Query api_endpoints table: WHERE service_id IN (services from Stages 1-4), calculate cosine similarity on endpoint embeddings
-- [ ] Filter by API type if specified: api_type IN ('rest', 'graphql_query', 'graphql_mutation', 'grpc')
-- [ ] Match endpoints to implementation chunks: JOIN on implementation_chunk_id from Stage 2 results
-- [ ] Extract contract details: endpoint_path, http_method, operation_id, summary, request_schema, response_schema, tags
-- [ ] Identify cross-service API calls: match HTTP calls in chunks to api_endpoints from different services
-- [ ] Link GraphQL queries to schema: match GraphQL operation names to graphql_query/graphql_mutation endpoints
-- [ ] Link gRPC calls to proto: match service.Method calls to grpc endpoints
-- [ ] Build API context map: {chunk_id -> [related_endpoints], service_id -> [exposed_apis], cross_service_calls[]}
-- [ ] Add contract warnings: deprecated endpoints, missing implementations, schema mismatches
-- [ ] Output: APIContext{endpoints[], cross_service_calls[], api_warnings[], contract_links{chunk_id -> endpoint_ids}}
+- [x] Create `src/retrieval/api-enricher.ts` for API contract context
+- [x] Query api_endpoints table: WHERE service_id IN (services from Stages 1-4), calculate cosine
+      similarity on endpoint embeddings
+- [x] Filter by API type if specified: api_type IN ('rest', 'graphql_query', 'graphql_mutation',
+      'grpc')
+- [x] Match endpoints to implementation chunks: JOIN on implementation_chunk_id from Stage 2 results
+- [x] Extract contract details: endpoint_path, http_method, operation_id, summary, request_schema,
+      response_schema, tags
+- [x] Identify cross-service API calls: match HTTP calls in chunks to api_endpoints from different
+      services
+- [x] Link GraphQL queries to schema: match GraphQL operation names to
+      graphql_query/graphql_mutation endpoints
+- [x] Link gRPC calls to proto: match service.Method calls to grpc endpoints
+- [x] Build API context map: {chunk_id -> [related_endpoints], service_id -> [exposed_apis],
+      cross_service_calls[]}
+- [x] Add contract warnings: deprecated endpoints, missing implementations, schema mismatches
+- [x] Output: APIContext{endpoints[], cross_service_calls[], api_warnings[], contract_links{chunk_id
+      -> endpoint_ids}}
 
-### 7. Stage 6: Deduplication
+### 7. Stage 6: Deduplication ✅
 
-- [ ] Create `src/retrieval/deduplicator.ts` for similarity-based dedup
-- [ ] **[MONOREPO/MICROSERVICE]** Implement architecture-aware dedup: keep duplicates from different services (legitimate separation), deduplicate within workspace (shared utilities), use workspace/service context in similarity scoring
-- [ ] Sort chunks by similarity score (descending)
-- [ ] For each chunk: compare embedding to all higher-ranked chunks, calculate cosine similarity, if similarity > DEDUP_THRESHOLD (0.92): mark as duplicate IF same workspace/service, track reference to kept chunk
-- [ ] **[MICROSERVICE]** Special handling: if chunks from different service_ids, don't deduplicate even if similar (legitimate code duplication across services)
-- [ ] **[REFERENCE REPOS]** Handle cross-repo duplicates differently: same repo = remove duplicate (keep higher score), different repos = tag instead of remove (may be intentional)
-- [ ] **[REFERENCE REPOS]** Implement reference vs main code duplicate detection: if reference duplicate of main code, keep main code and mark reference as similar; if main code duplicate of reference, replace reference with main code
-- [ ] **[REFERENCE REPOS]** Add metadata tags: `similar_to_main_code`, `similar_file`, `similar_repo` for cross-repo duplicates
-- [ ] Filter out duplicates, return deduplicated chunks (typically 25-35 from 100)
-- [ ] Track duplicate count and mapping
-- [ ] Output: DeduplicationResult{unique_chunks[], duplicates_removed count, duplicate_map (duplicate_id -> kept_id), architecture_context_preserved?}
+- [x] Create `src/retrieval/deduplicator.ts` for similarity-based dedup
+- [x] **[MONOREPO/MICROSERVICE]** Implement architecture-aware dedup: keep duplicates from different
+      services (legitimate separation), deduplicate within workspace (shared utilities), use
+      workspace/service context in similarity scoring
+- [x] Sort chunks by similarity score (descending)
+- [x] For each chunk: compare embedding to all higher-ranked chunks, calculate cosine similarity, if
+      similarity > DEDUP_THRESHOLD (0.92): mark as duplicate IF same workspace/service, track
+      reference to kept chunk
+- [x] **[MICROSERVICE]** Special handling: if chunks from different service_ids, don't deduplicate
+      even if similar (legitimate code duplication across services)
+- [x] **[REFERENCE REPOS]** Handle cross-repo duplicates differently: same repo = remove duplicate
+      (keep higher score), different repos = tag instead of remove (may be intentional)
+- [x] **[REFERENCE REPOS]** Implement reference vs main code duplicate detection: if reference
+      duplicate of main code, keep main code and mark reference as similar; if main code duplicate
+      of reference, replace reference with main code
+- [x] **[REFERENCE REPOS]** Add metadata tags: `similar_to_main_code`, `similar_file`,
+      `similar_repo` for cross-repo duplicates
+- [x] Filter out duplicates, return deduplicated chunks (typically 25-35 from 100)
+- [x] Track duplicate count and mapping
+- [x] Output: DeduplicationResult{unique_chunks[], duplicates_removed count, duplicate_map
+      (duplicate_id -> kept_id), architecture_context_preserved?}
 
-### 7.5. Result Prioritization by Repository Type
+### 7.5. Result Prioritization by Repository Type ✅
 
-- [ ] **[REFERENCE REPOS]** Create priority multipliers in `src/retrieval/deduplicator.ts`: monolithic/microservice/monorepo (1.0), library (0.9), reference (0.6), documentation (0.5)
-- [ ] **[REFERENCE REPOS]** Implement `prioritizeResults()`: fetch repo_type for each result, apply priority multiplier, sort by (similarity * priority)
-- [ ] **[REFERENCE REPOS]** Cache repo types: use Map to avoid repeated DB queries for same repo_id
-- [ ] **[REFERENCE REPOS]** Implement `groupByRepoType()`: group results into primary_code[], libraries[], references[], documentation[] arrays
-- [ ] **[REFERENCE REPOS]** Implement `limitSecondaryResults()`: max 5 reference results, max 3 documentation results, no limit on primary code
-- [ ] **[REFERENCE REPOS]** Output: GroupedResults{primary_code[], libraries[], references[], documentation[]}
+- [x] **[REFERENCE REPOS]** Create priority multipliers in `src/retrieval/deduplicator.ts`:
+      monolithic/microservice/monorepo (1.0), library (0.9), reference (0.6), documentation (0.5)
+- [x] **[REFERENCE REPOS]** Implement `prioritizeResults()`: fetch repo_type for each result, apply
+      priority multiplier, sort by (similarity \* priority)
+- [x] **[REFERENCE REPOS]** Cache repo types: use Map to avoid repeated DB queries for same repo_id
+- [x] **[REFERENCE REPOS]** Implement `groupByRepoType()`: group results into primary_code[],
+      libraries[], references[], documentation[] arrays
+- [x] **[REFERENCE REPOS]** Implement `limitSecondaryResults()`: max 5 reference results, max 3
+      documentation results, no limit on primary code
+- [x] **[REFERENCE REPOS]** Output: GroupedResults{primary_code[], libraries[], references[],
+      documentation[]}
 
-### 8. Stage 7: Context Assembly
+### 8. Stage 7: Context Assembly ✅
 
-- [ ] Create `src/retrieval/context-assembler.ts` for result aggregation
-- [ ] Aggregate all 7 stages: scope filter (Stage 0), relevant files (Stage 1), relevant chunks (Stage 2, after dedup), resolved symbols (Stage 3), import chains (Stage 4), API contracts (Stage 5)
-- [ ] **[MONOREPO/MICROSERVICE]** Group results by workspace, service, and repo: build by_workspace{}, by_service{}, by_repo{} maps with grouped context
-- [ ] **[MONOREPO/MICROSERVICE]** Add workspace/service token budgets: allocate tokens per workspace to prevent single package dominating, balance context across services
-- [ ] **[REFERENCE REPOS]** Include repository metadata in results: repo_type, version, upstream_url for reference repos
-- [ ] **[REFERENCE REPOS]** Group results by repo type: primary_code (main codebase), libraries (your libraries), references (external frameworks), documentation (markdown docs)
-- [ ] **[REFERENCE REPOS]** Add metadata section to results: repos_searched{repo_id, repo_type, chunk_count}[], reference_repos_included[], documentation_repos_included[]
-- [ ] Count total tokens: sum chunk.token_count + symbols (~50 tokens each) + imports (~30 tokens each) + API contracts (~100 tokens each)
-- [ ] Generate warning if >100k tokens: type 'context_size', severity 'warning', message "Context size: X tokens (exceeds 100k)", suggestion "Consider narrowing query or reducing max_snippets"
-- [ ] **[MONOREPO/MICROSERVICE]** Add boundary warnings: warn if boundaries crossed unexpectedly
-- [ ] **[MULTI-PROJECT]** Add API contract warnings: deprecated endpoints used, missing API implementations, cross-service contract mismatches
-- [ ] **[REFERENCE REPOS]** Add reference warnings: outdated reference repos (suggest re-index), similar code in references vs main code
-- [ ] Build SearchResult: query, query_type, warnings[], metadata (total_tokens, files_retrieved, chunks_retrieved, chunks_after_dedup, chunks_deduplicated, symbols_resolved, import_depth_reached, api_endpoints_found, query_time_ms, workspaces_searched?, services_searched?, repos_searched[], reference_repos_included[], documentation_repos_included[]), context (relevant_files[], code_locations[], symbols[], imports[], api_contracts[], by_workspace?, by_service?, by_repo?, by_repo_type?)
-- [ ] Output: SearchResult{query, query_type, warnings, metadata, context}
+- [x] Create `src/retrieval/context-assembler.ts` for result aggregation
+- [x] Aggregate all 7 stages: scope filter (Stage 0), relevant files (Stage 1), relevant chunks
+      (Stage 2, after dedup), resolved symbols (Stage 3), import chains (Stage 4), API contracts
+      (Stage 5)
+- [x] **[MONOREPO/MICROSERVICE]** Group results by workspace, service, and repo: build
+      by_workspace{}, by_service{}, by_repo{} maps with grouped context
+- [x] **[MONOREPO/MICROSERVICE]** Add workspace/service token budgets: allocate tokens per workspace
+      to prevent single package dominating, balance context across services
+- [x] **[REFERENCE REPOS]** Include repository metadata in results: repo_type, version, upstream_url
+      for reference repos
+- [x] **[REFERENCE REPOS]** Group results by repo type: primary_code (main codebase), libraries
+      (your libraries), references (external frameworks), documentation (markdown docs)
+- [x] **[REFERENCE REPOS]** Add metadata section to results: repos_searched{repo_id, repo_type,
+      chunk_count}[], reference_repos_included[], documentation_repos_included[]
+- [x] Count total tokens: sum chunk.token_count + symbols (~50 tokens each) + imports (~30 tokens
+      each) + API contracts (~100 tokens each)
+- [x] Generate warning if >100k tokens: type 'context_size', severity 'warning', message "Context
+      size: X tokens (exceeds 100k)", suggestion "Consider narrowing query or reducing max_snippets"
+- [x] **[MONOREPO/MICROSERVICE]** Add boundary warnings: warn if boundaries crossed unexpectedly
+- [x] **[MULTI-PROJECT]** Add API contract warnings: deprecated endpoints used, missing API
+      implementations, cross-service contract mismatches
+- [x] **[REFERENCE REPOS]** Add reference warnings: outdated reference repos (suggest re-index),
+      similar code in references vs main code
+- [x] Build SearchResult: query, query_type, warnings[], metadata (total_tokens, files_retrieved,
+      chunks_retrieved, chunks_after_dedup, chunks_deduplicated, symbols_resolved,
+      import_depth_reached, api_endpoints_found, query_time_ms, workspaces_searched?,
+      services_searched?, repos_searched[], reference_repos_included[],
+      documentation_repos_included[]), context (relevant_files[], code_locations[], symbols[],
+      imports[], api_contracts[], by_workspace?, by_service?, by_repo?, by_repo_type?)
+- [x] Output: SearchResult{query, query_type, warnings, metadata, context}
 
-### 9. Search Orchestrator
+### 9. Search Orchestrator ✅
 
-- [ ] Create `src/retrieval/search.ts` with main search function
-- [ ] Implement `searchCodebase(query, options)`: coordinate all 7 stages sequentially, track query execution time, return SearchResult
-- [ ] Support options: max_files (15), max_snippets (25), include_imports (true), import_depth (3), dedup_threshold (0.92), similarity_threshold (0.75)
-- [ ] **[MONOREPO/MICROSERVICE]** Support new options: workspace_filter, package_filter, exclude_workspaces, service_filter, service_type_filter, exclude_services, repo_filter, exclude_repos, cross_repo, workspace_scope{mode, max_depth}, service_scope{mode, max_depth}, workspace_depth (2), service_depth (1)
-- [ ] **[MULTI-PROJECT]** Support API options: search_api_contracts (true/false), api_types[] ('rest', 'graphql', 'grpc'), include_deprecated_apis (false)
-- [ ] **[REFERENCE REPOS]** Support reference repo options: include_references (default: false), include_documentation (default: false), exclude_repo_types[]
-- [ ] **[REFERENCE REPOS]** Support result limiting: max_reference_results (default: 5), max_documentation_results (default: 3)
+- [x] Create `src/retrieval/search.ts` with main search function
+- [x] Implement `searchCodebase(query, options)`: coordinate all 7 stages sequentially, track query
+      execution time, return SearchResult
+- [x] Support options: max_files (15), max_snippets (25), include_imports (true), import_depth (3),
+      dedup_threshold (0.92), similarity_threshold (0.75)
+- [x] **[MONOREPO/MICROSERVICE]** Support new options: workspace_filter, package_filter,
+      exclude_workspaces, service_filter, service_type_filter, exclude_services, repo_filter,
+      exclude_repos, cross_repo, workspace_scope{mode, max_depth}, service_scope{mode, max_depth},
+      workspace_depth (2), service_depth (1)
+- [x] **[MULTI-PROJECT]** Support API options: search_api_contracts (true/false), api_types[]
+      ('rest', 'graphql', 'grpc'), include_deprecated_apis (false)
+- [x] **[REFERENCE REPOS]** Support reference repo options: include_references (default: false),
+      include_documentation (default: false), exclude_repo_types[]
+- [x] **[REFERENCE REPOS]** Support result limiting: max_reference_results (default: 5),
+      max_documentation_results (default: 3)
 
 ---
 
@@ -180,23 +261,24 @@ Phase 4 is complete when:
 - [ ] **Stage 4:** Expands import chains to depth 3
 - [ ] **Stage 4:** Circular imports detected and marked (no infinite loops)
 - [ ] **Stage 4:** External dependencies marked as truncated (not expanded)
-- [ ] **Stage 5:** API contracts matched to implementation chunks
-- [ ] **Stage 5:** Cross-service API calls detected and linked
-- [ ] **Stage 5:** GraphQL/gRPC operations linked to schemas
-- [ ] **Stage 5:** Deprecated API warnings generated
+- [x] **Stage 5:** API contracts matched to implementation chunks
+- [x] **Stage 5:** Cross-service API calls detected and linked
+- [x] **Stage 5:** GraphQL/gRPC operations linked to schemas
+- [x] **Stage 5:** Deprecated API warnings generated
 - [ ] **Stage 6:** Deduplicates similar chunks (threshold 0.92)
 - [ ] **Stage 6:** Highest-scoring duplicates kept, count tracked
 - [ ] **Stage 6:** Architecture-aware dedup preserves cross-service duplicates
 - [ ] **Stage 6:** Cross-repo duplicates tagged instead of removed
 - [ ] **Stage 6:** Reference repo duplicates vs main code handled correctly
-- [ ] **Stage 7:** Token counting accurate across all components (including API contracts)
-- [ ] **Stage 7:** Warning generated when context exceeds 100k tokens
-- [ ] **Stage 7:** Context assembled in structured SearchResult format
-- [ ] **Stage 7:** API contract warnings included in warnings array
-- [ ] **Stage 7:** Repository metadata included (repo_type, version, upstream_url)
-- [ ] **Stage 7:** Results grouped by repo type (primary/libraries/references/documentation)
+- [x] **Stage 7:** Token counting accurate across all components (including API contracts)
+- [x] **Stage 7:** Warning generated when context exceeds 100k tokens
+- [x] **Stage 7:** Context assembled in structured SearchResult format
+- [x] **Stage 7:** API contract warnings included in warnings array
+- [x] **Stage 7:** Repository metadata included (repo_type, version, upstream_url)
+- [x] **Stage 7:** Results grouped by repo type (primary/libraries/references/documentation)
 - [ ] **Stage 7.5:** Result prioritization by repo_type works correctly
-- [ ] **Stage 7.5:** Priority multipliers applied (main: 1.0, library: 0.9, reference: 0.6, docs: 0.5)
+- [ ] **Stage 7.5:** Priority multipliers applied (main: 1.0, library: 0.9, reference: 0.6, docs:
+      0.5)
 - [ ] **Stage 7.5:** Secondary results limited (max 5 reference, max 3 documentation)
 - [ ] Query time <800ms for typical query (accuracy mode)
 - [ ] End-to-end search returns relevant results across all 7 stages
@@ -215,25 +297,30 @@ Phase 4 is complete when:
 
 ## Output Artifacts
 
-- `src/retrieval/scope-filter.ts` - Stage 0: Scope filtering (multi-project, reference repo exclusion)
+- `src/retrieval/scope-filter.ts` - Stage 0: Scope filtering (multi-project, reference repo
+  exclusion)
 - `src/retrieval/query-processor.ts` - Query embedding generation
 - `src/retrieval/file-retrieval.ts` - Stage 1: File-level search
 - `src/retrieval/chunk-retrieval.ts` - Stage 2: Chunk-level search
 - `src/retrieval/symbol-resolver.ts` - Stage 3: Symbol resolution
 - `src/retrieval/import-expander.ts` - Stage 4: Import chain expansion
 - `src/retrieval/api-enricher.ts` - Stage 5: API contract enrichment (multi-project)
-- `src/retrieval/deduplicator.ts` - Stage 6: Deduplication (architecture-aware, cross-repo duplicate handling, result prioritization)
-- `src/retrieval/context-assembler.ts` - Stage 7: Context assembly with token counting and repo metadata
+- `src/retrieval/deduplicator.ts` - Stage 6: Deduplication (architecture-aware, cross-repo duplicate
+  handling, result prioritization)
+- `src/retrieval/context-assembler.ts` - Stage 7: Context assembly with token counting and repo
+  metadata
 - `src/retrieval/search.ts` - Search orchestrator (main entry point)
 - `src/retrieval/vector-search.ts` - **[REFERENCE REPOS]** Vector search with scope filtering
 - `tests/unit/retrieval/` - Unit tests for each stage
-- `tests/integration/` - End-to-end search tests (including multi-project scenarios, reference repo filtering)
+- `tests/integration/` - End-to-end search tests (including multi-project scenarios, reference repo
+  filtering)
 
 ---
 
 ## Next Phase
 
 **Phase 5: MCP Server & Tools**
+
 - MCP server framework setup
 - 4 core tools (search_codebase, get_file_context, find_symbol_definition, index_repository)
 - Context formatting for Claude (Markdown)

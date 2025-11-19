@@ -1,11 +1,150 @@
 /**
  * Result deduplication and prioritization
  * Removes duplicate chunks and prioritizes results based on repository type
+ *
+ * This file contains two sets of functions:
+ * 1. Base pipeline deduplication (deduplicateChunksBase) - for single-repo mode
+ * 2. Multi-project deduplication (deduplicateChunks) - for multi-repo mode with repo type awareness
  */
 import { type Pool, type QueryResult } from 'pg';
 
 import { type SearchResult } from '@retrieval/vector-search';
+import { logger } from '@utils/logger';
 import { type CodeChunk, type RepositoryType, type RepoTypeQueryResult } from '@/types/database';
+import { type DeduplicationResult, type RelevantChunk } from '@/types/retrieval';
+
+/**
+ * ==============================================================================
+ * BASE PIPELINE DEDUPLICATION (Single-Repository Mode)
+ * ==============================================================================
+ */
+
+/**
+ * Calculate cosine similarity between two embedding vectors
+ *
+ * @param vec1 - First embedding vector
+ * @param vec2 - Second embedding vector
+ * @returns Cosine similarity score (0.0-1.0)
+ */
+const cosineSimilarity = (vec1: number[], vec2: number[]): number => {
+  if (vec1.length !== vec2.length) {
+    throw new Error(`Vector dimension mismatch: ${String(vec1.length)} vs ${String(vec2.length)}`);
+  }
+
+  let dotProduct = 0;
+  let norm1 = 0;
+  let norm2 = 0;
+
+  for (let i = 0; i < vec1.length; i++) {
+    dotProduct += vec1[i] * vec2[i];
+    norm1 += vec1[i] * vec1[i];
+    norm2 += vec2[i] * vec2[i];
+  }
+
+  const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+  return similarity;
+};
+
+/**
+ * Deduplicate chunks for base pipeline (single-repository mode)
+ *
+ * Performs pairwise similarity comparison to remove duplicate chunks.
+ * Keeps the highest-scoring chunk when duplicates are found.
+ *
+ * Algorithm:
+ * 1. Sort chunks by similarity score (descending)
+ * 2. For each chunk, compare with all higher-ranked chunks
+ * 3. If similarity > threshold: mark as duplicate
+ * 4. Keep track of duplicate mappings for debugging
+ *
+ * @param chunks - Chunks from Stage 2 (retrieveChunks)
+ * @param dedupThreshold - Similarity threshold for duplicates (default: 0.92)
+ * @returns Deduplication result with unique chunks and statistics
+ */
+export const deduplicateChunksBase = (chunks: RelevantChunk[], dedupThreshold = 0.92): DeduplicationResult => {
+  const startTime = Date.now();
+
+  if (chunks.length === 0) {
+    logger.debug('No chunks to deduplicate');
+    return {
+      unique_chunks: [],
+      duplicates_removed: 0,
+      duplicate_map: new Map(),
+    };
+  }
+
+  logger.debug('Starting chunk deduplication', {
+    totalChunks: chunks.length,
+    threshold: dedupThreshold,
+  });
+
+  // Step 1: Sort chunks by similarity score (descending)
+  // This ensures we always keep the highest-scoring chunk
+  const sortedChunks = [...chunks].sort((a, b) => b.similarity - a.similarity);
+
+  // Step 2: Deduplicate by pairwise comparison
+  const uniqueChunks: RelevantChunk[] = [];
+  const duplicateMap = new Map<string, string>();
+
+  for (const currentChunk of sortedChunks) {
+    let isDuplicate = false;
+
+    // Compare with all higher-ranked chunks (already in uniqueChunks)
+    for (const keptChunk of uniqueChunks) {
+      // Skip if either chunk is missing embedding
+      if (!currentChunk.embedding || !keptChunk.embedding) {
+        continue;
+      }
+
+      // Calculate embedding similarity
+      const similarity = cosineSimilarity(currentChunk.embedding, keptChunk.embedding);
+
+      if (similarity > dedupThreshold) {
+        // Found duplicate: keep keptChunk (higher score), discard currentChunk
+        isDuplicate = true;
+        duplicateMap.set(currentChunk.chunk_id, keptChunk.chunk_id);
+
+        logger.debug('Duplicate chunk found', {
+          duplicate: currentChunk.chunk_id,
+          keptChunk: keptChunk.chunk_id,
+          similarity: similarity.toFixed(3),
+          duplicateSimilarity: currentChunk.similarity.toFixed(3),
+          keptSimilarity: keptChunk.similarity.toFixed(3),
+        });
+
+        break;
+      }
+    }
+
+    if (!isDuplicate) {
+      uniqueChunks.push(currentChunk);
+    }
+  }
+
+  const dedupTime = Date.now() - startTime;
+  const duplicatesRemoved = chunks.length - uniqueChunks.length;
+
+  logger.info('Chunk deduplication complete', {
+    originalChunks: chunks.length,
+    uniqueChunks: uniqueChunks.length,
+    duplicatesRemoved,
+    dedupPercentage: ((duplicatesRemoved / chunks.length) * 100).toFixed(1) + '%',
+    threshold: dedupThreshold,
+    dedupTime,
+  });
+
+  return {
+    unique_chunks: uniqueChunks,
+    duplicates_removed: duplicatesRemoved,
+    duplicate_map: duplicateMap,
+  };
+};
+
+/**
+ * ==============================================================================
+ * MULTI-PROJECT DEDUPLICATION (Multi-Repository Mode)
+ * ==============================================================================
+ */
 
 /**
  * Priority multipliers for different repository types

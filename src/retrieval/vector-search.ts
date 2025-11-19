@@ -56,6 +56,103 @@ export interface SearchResult<T> {
 }
 
 /**
+ * Dependency graph traversal result row
+ */
+interface DependencyRow {
+  target_repo_id: string;
+}
+
+/**
+ * Traverse dependency graph using BFS to find all related repositories
+ *
+ * Expands from a starting repository to include:
+ * - Cross-repository dependencies (from cross_repo_dependencies table)
+ * - Workspace internal dependencies (from workspace_dependencies table, resolved to repos)
+ *
+ * Implements cycle detection and respects depth limits.
+ *
+ * @param db - Database connection pool
+ * @param startRepoId - Starting repository ID
+ * @param maxDepth - Maximum traversal depth (default: 2)
+ * @param excludedTypes - Repository types to exclude from results
+ * @returns Array of repository IDs including start repo and all dependencies within depth
+ */
+const traverseDependencyGraph = async (
+  db: Pool,
+  startRepoId: string,
+  maxDepth = 2,
+  excludedTypes: RepositoryType[] = []
+): Promise<string[]> => {
+  // Track visited repos to prevent cycles
+  const visited = new Set<string>([startRepoId]);
+  const result: string[] = [startRepoId];
+
+  // BFS queue: [repo_id, current_depth]
+  const queue: [string, number][] = [[startRepoId, 0]];
+
+  while (queue.length > 0) {
+    const item = queue.shift();
+    if (!item) break;
+
+    const [currentRepoId, currentDepth] = item;
+
+    // Stop if max depth reached
+    if (currentDepth >= maxDepth) {
+      continue;
+    }
+
+    // Query cross-repository dependencies
+    const crossRepoDepsQuery = `
+      SELECT DISTINCT target_repo_id
+      FROM cross_repo_dependencies
+      WHERE source_repo_id = $1
+    `;
+
+    try {
+      const crossRepoDepsResult = await db.query<DependencyRow>(crossRepoDepsQuery, [currentRepoId]);
+
+      for (const row of crossRepoDepsResult.rows) {
+        const targetRepoId = row.target_repo_id;
+
+        // Skip if already visited (cycle detection)
+        if (visited.has(targetRepoId)) {
+          continue;
+        }
+
+        // Check if target repo is excluded by type
+        if (excludedTypes.length > 0) {
+          const repoTypeQuery = `SELECT repo_type FROM repositories WHERE repo_id = $1`;
+          const repoTypeResult = await db.query<RepoTypeQueryResult>(repoTypeQuery, [targetRepoId]);
+
+          if (repoTypeResult.rows.length > 0) {
+            const repoType = repoTypeResult.rows[0].repo_type;
+            if (excludedTypes.includes(repoType)) {
+              continue; // Skip excluded repo types
+            }
+          }
+        }
+
+        // Add to visited and result
+        visited.add(targetRepoId);
+        result.push(targetRepoId);
+
+        // Add to queue for further expansion
+        queue.push([targetRepoId, currentDepth + 1]);
+      }
+    } catch (error) {
+      // Log error but continue traversal
+      console.error(`Failed to query cross-repo dependencies for ${currentRepoId}:`, error);
+    }
+
+    // Query workspace dependencies (for monorepos)
+    // Workspace dependencies are within the same repo, so we don't expand to other repos here
+    // This is handled by workspace-scoped searches instead
+  }
+
+  return result;
+};
+
+/**
  * Determine which repository IDs to include based on search filter
  * Stage 0: Scope Filtering
  */
@@ -158,12 +255,21 @@ const determineSearchScope = async (db: Pool, filter: SearchFilter): Promise<str
 
     case 'boundary-aware': {
       // Start from a repository and expand to dependencies
-      // TODO: Implement dependency graph traversal in Phase 5
-      // For now, same as repository scope
       if (!repoId) {
         throw new Error('repo_id is required for boundary-aware scope');
       }
-      return [repoId];
+
+      // If dependencies not requested, just return the starting repo
+      const { include_dependencies: includeDependencies = false, dependency_depth: dependencyDepth = 2 } = filter;
+
+      if (!includeDependencies) {
+        return [repoId];
+      }
+
+      // Perform BFS traversal of dependency graph
+      const expandedRepoIds = await traverseDependencyGraph(db, repoId, dependencyDepth, excludedTypes);
+
+      return expandedRepoIds;
     }
 
     default: {

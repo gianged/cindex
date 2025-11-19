@@ -18,6 +18,9 @@ export default {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@config/(.*)$': '<rootDir>/src/config/$1',
     '^@database/(.*)$': '<rootDir>/src/database/$1',
+    '^@indexing/(.*)$': '<rootDir>/src/indexing/$1',
+    '^@retrieval/(.*)$': '<rootDir>/src/retrieval/$1',
+    '^@mcp/(.*)$': '<rootDir>/src/mcp/$1',
     '^@utils/(.*)$': '<rootDir>/src/utils/$1',
     '^@types/(.*)$': '<rootDir>/src/types/$1',
     // Mock chalk to avoid ESM issues

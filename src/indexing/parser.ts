@@ -538,26 +538,842 @@ export class CodeParser {
   };
 
   /**
-   * Stub methods for other languages (to be implemented)
+   * Extract nodes from Python syntax tree
    */
-  private extractPythonNodes = (..._args: Parameters<typeof this.extractJavaScriptNodes>): void => {
-    // TODO: Implement Python-specific extraction
+  private extractPythonNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    _exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract function definitions (but not methods inside classes)
+    if (type === 'function_definition') {
+      // Check if this function is inside a class (is a method)
+      const isMethod = node.parent?.parent?.type === 'class_definition';
+      if (!isMethod) {
+        const func = this.extractFunction(node, code);
+        if (func) {
+          nodes.push(func);
+        }
+      }
+    }
+
+    // Extract class definitions with Python-specific method extraction
+    if (type === 'class_definition') {
+      const cls = this.extractPythonClass(node, code);
+      if (cls) {
+        nodes.push(cls);
+      }
+    }
+
+    // Extract import statements: import module
+    if (type === 'import_statement') {
+      const imp = this.extractPythonImport(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
+
+    // Extract from...import statements: from module import symbol
+    if (type === 'import_from_statement') {
+      const imp = this.extractPythonFromImport(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
   };
 
-  private extractJavaNodes = (..._args: Parameters<typeof this.extractJavaScriptNodes>): void => {
-    // TODO: Implement Java-specific extraction
+  /**
+   * Extract Python class with methods
+   */
+  private extractPythonClass = (node: Parser.SyntaxNode, code: string): ParsedNode | null => {
+    try {
+      const nameNode = node.childForFieldName('name');
+      const name = nameNode ? code.slice(nameNode.startIndex, nameNode.endIndex) : '<anonymous>';
+
+      // Extract methods as children
+      const children: ParsedNode[] = [];
+      const bodyNode = node.childForFieldName('body');
+
+      if (bodyNode) {
+        for (const child of bodyNode.children) {
+          // In Python, methods are function_definition nodes within the class body
+          if (child.type === 'function_definition') {
+            const method = this.extractFunction(child, code);
+            if (method) {
+              method.node_type = NodeType.Method;
+              children.push(method);
+            }
+          }
+        }
+      }
+
+      const docstring = this.extractDocstring(node, code);
+
+      return {
+        node_type: NodeType.Class,
+        name,
+        start_line: node.startPosition.row + 1,
+        end_line: node.endPosition.row + 1,
+        code_text: code.slice(node.startIndex, node.endIndex),
+        docstring,
+        children,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Python class', { error });
+      return null;
+    }
   };
 
-  private extractGoNodes = (..._args: Parameters<typeof this.extractJavaScriptNodes>): void => {
-    // TODO: Implement Go-specific extraction
+  /**
+   * Extract Python import statement: import module
+   */
+  private extractPythonImport = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract module name: import os, import sys
+      // Can have multiple: import os, sys, json
+      const importMatch = /import\s+([^\n]+)/.exec(text);
+      const modules = importMatch ? importMatch[1].split(',').map((m) => m.trim()) : [];
+
+      // For simple imports, we treat each module as a namespace import
+      // Store the first module as the source
+      const source = modules[0] ?? '';
+
+      return {
+        symbols: [],
+        source,
+        is_default: false,
+        is_namespace: true,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Python import', { error });
+      return null;
+    }
   };
 
-  private extractRustNodes = (..._args: Parameters<typeof this.extractJavaScriptNodes>): void => {
-    // TODO: Implement Rust-specific extraction
+  /**
+   * Extract Python from...import statement: from module import symbol
+   */
+  private extractPythonFromImport = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract module: from typing import List, Dict
+      const moduleMatch = /from\s+([^\s]+)\s+import/.exec(text);
+      const source = moduleMatch ? moduleMatch[1].trim() : '';
+
+      // Extract symbols: List, Dict, or * for wildcard
+      const symbols: string[] = [];
+      const symbolsMatch = /import\s+([^\n]+)/.exec(text);
+      if (symbolsMatch) {
+        const symbolsText = symbolsMatch[1].trim();
+        if (symbolsText === '*') {
+          // Wildcard import
+          symbols.push('*');
+        } else {
+          // Named imports: can have aliases like "import foo as bar"
+          symbols.push(...symbolsText.split(',').map((s) => s.trim().split(' as ')[0].trim()));
+        }
+      }
+
+      const isNamespace = symbols.includes('*');
+
+      return {
+        symbols,
+        source,
+        is_default: false,
+        is_namespace: isNamespace,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Python from...import', { error });
+      return null;
+    }
   };
 
-  private extractCNodes = (..._args: Parameters<typeof this.extractJavaScriptNodes>): void => {
-    // TODO: Implement C/C++-specific extraction
+  /**
+   * Extract nodes from Java syntax tree
+   */
+  private extractJavaNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract method declarations
+    if (type === 'method_declaration' || type === 'constructor_declaration') {
+      const func = this.extractFunction(node, code);
+      if (func) {
+        func.node_type = type === 'constructor_declaration' ? NodeType.Method : NodeType.Function;
+        nodes.push(func);
+      }
+    }
+
+    // Extract field declarations (class fields/properties)
+    if (type === 'field_declaration') {
+      const field = this.extractJavaField(node, code);
+      if (field) {
+        nodes.push(field);
+      }
+    }
+
+    // Extract class declarations
+    if (type === 'class_declaration') {
+      const cls = this.extractClass(node, code);
+      if (cls) {
+        nodes.push(cls);
+      }
+    }
+
+    // Extract interface declarations
+    if (type === 'interface_declaration') {
+      const iface = this.extractInterface(node, code);
+      if (iface) {
+        nodes.push(iface);
+      }
+    }
+
+    // Extract enum declarations
+    if (type === 'enum_declaration') {
+      const enumNode = this.extractEnum(node, code);
+      if (enumNode) {
+        nodes.push(enumNode);
+      }
+    }
+
+    // Extract annotation type declarations (@interface)
+    if (type === 'annotation_type_declaration') {
+      const annotation = this.extractInterface(node, code);
+      if (annotation) {
+        nodes.push(annotation);
+      }
+    }
+
+    // Extract import declarations
+    if (type === 'import_declaration') {
+      const imp = this.extractJavaImport(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
+
+    // Java doesn't have traditional exports - classes are accessible via packages
+    // We track public classes/interfaces/enums as implicit exports
+    if (
+      (type === 'class_declaration' ||
+        type === 'interface_declaration' ||
+        type === 'enum_declaration' ||
+        type === 'annotation_type_declaration') &&
+      this.isJavaPublicMember(node, code)
+    ) {
+      const nameNode = node.childForFieldName('name');
+      if (nameNode) {
+        const name = code.slice(nameNode.startIndex, nameNode.endIndex);
+        exports.push({
+          symbols: [name],
+          is_default: false,
+          is_reexport: false,
+          line_number: node.startPosition.row + 1,
+        });
+      }
+    }
+  };
+
+  /**
+   * Extract Java field declaration
+   */
+  private extractJavaField = (node: Parser.SyntaxNode, code: string): ParsedNode | null => {
+    try {
+      // Field declaration can have multiple declarators
+      const declarator = node.children.find((c) => c.type === 'variable_declarator');
+      if (!declarator) return null;
+
+      const nameNode = declarator.childForFieldName('name');
+      const name = nameNode ? code.slice(nameNode.startIndex, nameNode.endIndex) : '<unknown>';
+
+      // Extract type
+      const typeNode = node.childForFieldName('type');
+      const returnType = typeNode ? code.slice(typeNode.startIndex, typeNode.endIndex) : undefined;
+
+      const docstring = this.extractDocstring(node, code);
+
+      // Check if it's static final (constant)
+      const text = code.slice(node.startIndex, node.endIndex);
+      const isConstant = text.includes('static') && text.includes('final');
+
+      return {
+        node_type: isConstant ? NodeType.Constant : NodeType.Variable,
+        name,
+        start_line: node.startPosition.row + 1,
+        end_line: node.endPosition.row + 1,
+        code_text: code.slice(node.startIndex, node.endIndex),
+        return_type: returnType,
+        docstring,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Java field', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Extract Java import declaration
+   */
+  private extractJavaImport = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract import path: "import java.util.List;"
+      // or "import static java.lang.Math.PI;"
+      const importMatch = /import\s+(?:static\s+)?([^;]+);/.exec(text);
+      const source = importMatch ? importMatch[1].trim() : '';
+
+      // Check if it's a wildcard import: import java.util.*;
+      const isWildcard = source.endsWith('*');
+
+      return {
+        symbols: isWildcard ? ['*'] : [],
+        source: isWildcard ? source.slice(0, -2) : source, // Remove .* from wildcard
+        is_default: false,
+        is_namespace: isWildcard,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Java import', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Check if Java member has public access modifier
+   */
+  private isJavaPublicMember = (node: Parser.SyntaxNode, code: string): boolean => {
+    // Check for 'public' modifier in the node's modifiers
+    const modifiersNode = node.children.find((c) => c.type === 'modifiers');
+    if (modifiersNode) {
+      const modifiersText = code.slice(modifiersNode.startIndex, modifiersNode.endIndex);
+      return modifiersText.includes('public');
+    }
+
+    // Fallback: check in the entire node text
+    const text = code.slice(node.startIndex, node.endIndex);
+    return /^\s*public\s+/.test(text);
+  };
+
+  /**
+   * Extract nodes from Go syntax tree
+   */
+  private extractGoNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract function declarations
+    if (type === 'function_declaration' || type === 'method_declaration') {
+      const func = this.extractFunction(node, code);
+      if (func) {
+        func.node_type = type === 'method_declaration' ? NodeType.Method : NodeType.Function;
+        nodes.push(func);
+      }
+    }
+
+    // Extract type declarations (structs, interfaces)
+    if (type === 'type_declaration') {
+      // Go type declarations can contain type_spec or type_spec_list
+      const typeSpecs = node.children.filter((c) => c.type === 'type_spec' || c.type === 'type_spec_list');
+
+      for (const spec of typeSpecs) {
+        if (spec.type === 'type_spec_list') {
+          // Multiple type specs
+          const specs = spec.children.filter((c) => c.type === 'type_spec');
+          for (const s of specs) {
+            this.extractGoTypeSpec(s, code, nodes);
+          }
+        } else {
+          // Single type spec
+          this.extractGoTypeSpec(spec, code, nodes);
+        }
+      }
+    }
+
+    // Extract import declarations
+    if (type === 'import_declaration') {
+      const imps = this.extractGoImports(node, code);
+      imports.push(...imps);
+    }
+
+    // Go exports: Check if identifier starts with uppercase letter
+    if (type === 'function_declaration' || type === 'method_declaration') {
+      if (this.isGoExported(node, code)) {
+        const nameNode = node.childForFieldName('name');
+        if (nameNode) {
+          const name = code.slice(nameNode.startIndex, nameNode.endIndex);
+          exports.push({
+            symbols: [name],
+            is_default: false,
+            is_reexport: false,
+            line_number: node.startPosition.row + 1,
+          });
+        }
+      }
+    }
+
+    // For type declarations, check each type spec
+    if (type === 'type_declaration') {
+      const typeSpecs = node.children.filter((c) => c.type === 'type_spec' || c.type === 'type_spec_list');
+
+      for (const spec of typeSpecs) {
+        if (spec.type === 'type_spec_list') {
+          const specs = spec.children.filter((c) => c.type === 'type_spec');
+          for (const s of specs) {
+            this.addGoTypeExport(s, code, exports);
+          }
+        } else {
+          this.addGoTypeExport(spec, code, exports);
+        }
+      }
+    }
+  };
+
+  /**
+   * Add Go type export if it's exported
+   */
+  private addGoTypeExport = (node: Parser.SyntaxNode, code: string, exports: ExportInfo[]): void => {
+    const nameNode = node.childForFieldName('name');
+    if (nameNode) {
+      const name = code.slice(nameNode.startIndex, nameNode.endIndex);
+      // Check if exported (starts with uppercase)
+      if (name.length > 0 && /^[A-Z]/.test(name)) {
+        exports.push({
+          symbols: [name],
+          is_default: false,
+          is_reexport: false,
+          line_number: node.startPosition.row + 1,
+        });
+      }
+    }
+  };
+
+  /**
+   * Extract Go type spec (struct or interface)
+   */
+  private extractGoTypeSpec = (node: Parser.SyntaxNode, code: string, nodes: ParsedNode[]): void => {
+    try {
+      const typeNode = node.childForFieldName('type');
+      if (!typeNode) return;
+
+      if (typeNode.type === 'struct_type') {
+        const struct = this.extractClass(node, code);
+        if (struct) {
+          nodes.push(struct);
+        }
+      } else if (typeNode.type === 'interface_type') {
+        const iface = this.extractInterface(node, code);
+        if (iface) {
+          nodes.push(iface);
+        }
+      }
+    } catch (error) {
+      logger.debug('Failed to extract Go type spec', { error });
+    }
+  };
+
+  /**
+   * Extract Go import declarations
+   */
+  private extractGoImports = (node: Parser.SyntaxNode, code: string): ImportInfo[] => {
+    const imports: ImportInfo[] = [];
+
+    try {
+      // Go imports can be single or grouped
+      const importSpecs = node.children.filter((c) => c.type === 'import_spec' || c.type === 'import_spec_list');
+
+      for (const spec of importSpecs) {
+        if (spec.type === 'import_spec_list') {
+          // Grouped imports: import ( ... )
+          const specs = spec.children.filter((c) => c.type === 'import_spec');
+          for (const s of specs) {
+            const imp = this.extractGoImportSpec(s, code);
+            if (imp) imports.push(imp);
+          }
+        } else {
+          // Single import
+          const imp = this.extractGoImportSpec(spec, code);
+          if (imp) imports.push(imp);
+        }
+      }
+    } catch (error) {
+      logger.debug('Failed to extract Go imports', { error });
+    }
+
+    return imports;
+  };
+
+  /**
+   * Extract single Go import spec
+   */
+  private extractGoImportSpec = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract package path from quoted string
+      const pathMatch = /"([^"]+)"/.exec(text);
+      const source = pathMatch ? pathMatch[1] : '';
+
+      // Check for alias: alias "package/path"
+      const hasAlias = /^\w+\s+"/.test(text.trim());
+
+      return {
+        symbols: [],
+        source,
+        is_default: false,
+        is_namespace: !hasAlias,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Go import spec', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Check if Go identifier is exported (starts with uppercase letter)
+   */
+  private isGoExported = (node: Parser.SyntaxNode, code: string): boolean => {
+    const nameNode = node.childForFieldName('name');
+    if (!nameNode) return false;
+
+    const name = code.slice(nameNode.startIndex, nameNode.endIndex);
+    // Go exports: identifier starts with uppercase letter
+    return name.length > 0 && /^[A-Z]/.test(name);
+  };
+
+  /**
+   * Extract nodes from Rust syntax tree
+   */
+  private extractRustNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract function declarations
+    if (type === 'function_item') {
+      const func = this.extractFunction(node, code);
+      if (func) {
+        nodes.push(func);
+      }
+    }
+
+    // Extract struct declarations
+    if (type === 'struct_item') {
+      const struct = this.extractClass(node, code);
+      if (struct) {
+        nodes.push(struct);
+      }
+    }
+
+    // Extract enum declarations
+    if (type === 'enum_item') {
+      const enumNode = this.extractEnum(node, code);
+      if (enumNode) {
+        nodes.push(enumNode);
+      }
+    }
+
+    // Extract trait declarations
+    if (type === 'trait_item') {
+      const trait = this.extractInterface(node, code);
+      if (trait) {
+        nodes.push(trait);
+      }
+    }
+
+    // Extract impl blocks (trait implementations and inherent impls)
+    if (type === 'impl_item') {
+      const impl = this.extractRustImpl(node, code);
+      if (impl) {
+        nodes.push(impl);
+      }
+    }
+
+    // Extract use declarations (imports)
+    if (type === 'use_declaration') {
+      const imp = this.extractRustUse(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
+
+    // Rust exports: Check for pub visibility
+    if (
+      (type === 'function_item' || type === 'struct_item' || type === 'enum_item' || type === 'trait_item') &&
+      this.isRustPublic(node, code)
+    ) {
+      const nameNode = node.childForFieldName('name');
+      if (nameNode) {
+        const name = code.slice(nameNode.startIndex, nameNode.endIndex);
+        exports.push({
+          symbols: [name],
+          is_default: false,
+          is_reexport: false,
+          line_number: node.startPosition.row + 1,
+        });
+      }
+    }
+  };
+
+  /**
+   * Extract Rust impl block
+   */
+  private extractRustImpl = (node: Parser.SyntaxNode, code: string): ParsedNode | null => {
+    try {
+      // Get the type being implemented
+      const typeNode = node.childForFieldName('type');
+      const name = typeNode ? code.slice(typeNode.startIndex, typeNode.endIndex) : '<impl>';
+
+      // Check if it's a trait implementation
+      const traitNode = node.childForFieldName('trait');
+      const traitName = traitNode ? code.slice(traitNode.startIndex, traitNode.endIndex) : undefined;
+
+      const fullName = traitName ? `impl ${traitName} for ${name}` : `impl ${name}`;
+
+      // Extract methods from impl block
+      const children: ParsedNode[] = [];
+      const bodyNode = node.childForFieldName('body');
+
+      if (bodyNode) {
+        for (const child of bodyNode.children) {
+          if (child.type === 'function_item') {
+            const method = this.extractFunction(child, code);
+            if (method) {
+              method.node_type = NodeType.Method;
+              children.push(method);
+            }
+          }
+        }
+      }
+
+      return {
+        node_type: NodeType.Class,
+        name: fullName,
+        start_line: node.startPosition.row + 1,
+        end_line: node.endPosition.row + 1,
+        code_text: code.slice(node.startIndex, node.endIndex),
+        children,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Rust impl block', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Extract Rust use declaration (import)
+   */
+  private extractRustUse = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract module path: use std::io;
+      // Can be: use std::io::*, use std::io::Read, use std::{io, fs}
+      const useMatch = /use\s+([^;]+);/.exec(text);
+      const path = useMatch ? useMatch[1].trim() : '';
+
+      // Check for wildcard import: use std::io::*
+      const isWildcard = path.endsWith('*');
+
+      // Check for grouped imports: use std::{io, fs}
+      const isGrouped = path.includes('{');
+
+      // Extract symbols for named imports
+      const symbols: string[] = [];
+      if (isWildcard) {
+        symbols.push('*');
+      } else if (isGrouped) {
+        const groupMatch = /{([^}]+)}/.exec(path);
+        if (groupMatch) {
+          symbols.push(...groupMatch[1].split(',').map((s) => s.trim()));
+        }
+      }
+
+      // Get the source module (remove * or grouped imports)
+      let source = path;
+      if (isWildcard) {
+        source = path.slice(0, -3); // Remove ::*
+      } else if (isGrouped) {
+        source = path.split('{')[0].replace(/::$/, '');
+      }
+
+      return {
+        symbols,
+        source,
+        is_default: false,
+        is_namespace: isWildcard,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract Rust use declaration', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Check if Rust item is public
+   */
+  private isRustPublic = (node: Parser.SyntaxNode, code: string): boolean => {
+    // Check for visibility modifier
+    const visibilityNode = node.children.find((c) => c.type === 'visibility_modifier');
+    if (visibilityNode) {
+      const visText = code.slice(visibilityNode.startIndex, visibilityNode.endIndex);
+      return visText.includes('pub');
+    }
+
+    // Fallback: check in the entire node text
+    const text = code.slice(node.startIndex, node.endIndex);
+    return /^\s*pub\s+/.test(text);
+  };
+
+  /**
+   * Extract nodes from C/C++ syntax tree
+   */
+  private extractCNodes = (
+    node: Parser.SyntaxNode,
+    code: string,
+    nodes: ParsedNode[],
+    imports: ImportInfo[],
+    _exports: ExportInfo[]
+  ): void => {
+    const type = node.type;
+
+    // Extract function definitions
+    if (type === 'function_definition') {
+      const func = this.extractFunction(node, code);
+      if (func) {
+        nodes.push(func);
+      }
+    }
+
+    // Extract struct declarations (both C and C++)
+    if (type === 'struct_specifier') {
+      const struct = this.extractClass(node, code);
+      if (struct) {
+        nodes.push(struct);
+      }
+    }
+
+    // Extract class declarations (C++ only)
+    if (type === 'class_specifier') {
+      const cls = this.extractClass(node, code);
+      if (cls) {
+        nodes.push(cls);
+      }
+    }
+
+    // Extract enum declarations
+    if (type === 'enum_specifier') {
+      const enumNode = this.extractEnum(node, code);
+      if (enumNode) {
+        nodes.push(enumNode);
+      }
+    }
+
+    // Extract namespace declarations (C++ only)
+    if (type === 'namespace_definition') {
+      const nameNode = node.childForFieldName('name');
+      const name = nameNode ? code.slice(nameNode.startIndex, nameNode.endIndex) : '<namespace>';
+
+      nodes.push({
+        node_type: NodeType.Interface,
+        name: `namespace ${name}`,
+        start_line: node.startPosition.row + 1,
+        end_line: node.endPosition.row + 1,
+        code_text: code.slice(node.startIndex, node.endIndex),
+      });
+    }
+
+    // Extract #include directives
+    if (type === 'preproc_include') {
+      const imp = this.extractCInclude(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
+
+    // Extract using declarations (C++)
+    if (type === 'using_declaration') {
+      const imp = this.extractCPPUsing(node, code);
+      if (imp) {
+        imports.push(imp);
+      }
+    }
+  };
+
+  /**
+   * Extract C/C++ #include directive
+   */
+  private extractCInclude = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract header file: #include <stdio.h> or #include "myheader.h"
+      const includeMatch = /#include\s+[<"]([^>"]+)[>"]/.exec(text);
+      const source = includeMatch ? includeMatch[1] : '';
+
+      return {
+        symbols: [],
+        source,
+        is_default: false,
+        is_namespace: true,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract C include', { error });
+      return null;
+    }
+  };
+
+  /**
+   * Extract C++ using declaration
+   */
+  private extractCPPUsing = (node: Parser.SyntaxNode, code: string): ImportInfo | null => {
+    try {
+      const text = code.slice(node.startIndex, node.endIndex);
+
+      // Extract namespace: using namespace std;
+      // or specific symbol: using std::cout;
+      const usingMatch = /using\s+(?:namespace\s+)?([^;]+);/.exec(text);
+      const source = usingMatch ? usingMatch[1].trim() : '';
+
+      const isNamespace = text.includes('namespace');
+
+      return {
+        symbols: [],
+        source,
+        is_default: false,
+        is_namespace: isNamespace,
+        line_number: node.startPosition.row + 1,
+      };
+    } catch (error) {
+      logger.debug('Failed to extract C++ using declaration', { error });
+      return null;
+    }
   };
 
   /**
