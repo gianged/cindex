@@ -16,7 +16,7 @@ contextual code, optimized for Claude Code integration.
 
 - **Semantic Code Search** - Vector embeddings for intelligent code discovery
 - **Multi-Stage Retrieval** - Files → chunks → symbols → imports (4-stage pipeline)
-- **Incremental Indexing** - Hash-based change detection, re-index only modified files
+- **Incremental Indexing** - Hash-based change detection planned (not yet fully implemented)
 - **Configurable Models** - Swap embedding/LLM models via environment variables
 - **Import Chain Analysis** - Automatic dependency resolution with depth limits
 - **Deduplication** - Remove duplicate utility functions from results
@@ -107,7 +107,7 @@ CREATE TABLE repositories (
     repo_id TEXT UNIQUE,              -- Unique identifier (e.g., 'auth-service')
     repo_name TEXT,                    -- Human-readable name
     repo_path TEXT,                    -- Filesystem path or URL
-    repo_type TEXT,                    -- 'monorepo', 'microservice', 'monolithic', 'library'
+    repo_type TEXT,                    -- 'monolithic', 'microservice', 'monorepo', 'library', 'reference', 'documentation'
     workspace_config TEXT,             -- Workspace config file (pnpm-workspace.yaml, nx.json, etc.)
     workspace_patterns TEXT[],         -- Workspace globs (['packages/*', 'apps/*'])
     git_remote_url TEXT,
@@ -119,6 +119,52 @@ CREATE TABLE repositories (
 - Each indexed codebase gets a unique `repo_id`
 - All chunks, files, and symbols tagged with `repo_id` for filtering
 - Enables global search across all repos or scoped search per repo
+
+**Repository Type Definitions:**
+
+1. **`monolithic`** - Standard single-application codebase
+   - **Use case:** Your main application code (single-purpose app)
+   - **Example:** Traditional web application, mobile app, desktop app
+   - **Search behavior:** Default scope for single-repo projects
+
+2. **`microservice`** - Individual microservice repository
+   - **Use case:** Service-oriented architecture, microservices
+   - **Example:** auth-service, payment-service, notification-service
+   - **Search behavior:** Service-scoped search with API contract linking
+
+3. **`monorepo`** - Multi-package repository with workspace structure
+   - **Use case:** Shared codebase with multiple packages/apps
+   - **Example:** Turborepo, Nx, pnpm workspaces, Lerna projects
+   - **Search behavior:** Workspace-aware search and import resolution
+
+4. **`library`** - Shared library repository (your own libraries)
+   - **Use case:** Internal reusable libraries and packages
+   - **Example:** @mycompany/ui-components, @mycompany/utils
+   - **Search behavior:** Normal priority, included in cross-repo searches
+
+5. **`reference`** - External framework/library for learning
+   - **Use case:** Index open-source frameworks to learn patterns
+   - **Example:** NestJS, React, Vue, Express cloned locally
+   - **Search behavior:** Excluded by default, lower priority (0.6), max 5 results
+   - **Special handling:** Version tracking, lightweight indexing
+
+6. **`documentation`** - Markdown documentation repository
+   - **Use case:** API docs, guides, tutorials in markdown format
+   - **Example:** /docs/libraries/, framework documentation
+   - **Search behavior:** Excluded by default, lowest priority (0.5), max 3 results
+   - **Special handling:** Markdown-only, fast indexing (1000 files/min)
+
+**Architectural Patterns and Repository Type Mapping:**
+
+cindex's 6 repository types cover all common architectural patterns:
+
+- **Serverless Functions** → Use `monorepo` (functions as workspaces) or `library` (shared function packages)
+- **Plugins/Extensions** → Use `library` (self-contained packages)
+- **Event-Driven Systems** → Use `microservice` (event handlers as services) or `monorepo` (handlers as workspaces)
+- **Multi-Language Codebases** → Use `monorepo` with different languages as different workspaces (see Multi-Language Monorepo Support)
+- **Mobile Apps** → Use `monolithic` (single app) or `monorepo` (multi-platform: iOS + Android + Web)
+
+**No additional repository types needed** - all architectural patterns fit into these 6 categories.
 
 #### 2. Services Table
 
@@ -229,6 +275,159 @@ CREATE TABLE workspace_aliases (
 - `@workspace/shared` → `packages/shared`
 - `@/components` → `src/components` (tsconfig paths)
 - `~/utils` → `src/utils` (custom alias)
+
+---
+
+### Multi-Language Monorepo Support
+
+**Key Architecture Principle:** Different languages in a monorepo are tracked as separate workspaces with API-based communication.
+
+#### Workspace Language Detection
+
+Each workspace has a primary language determined from workspace root package managers:
+
+- `package.json` → TypeScript/JavaScript
+- `requirements.txt` / `pyproject.toml` → Python
+- `go.mod` → Go
+- `pom.xml` / `build.gradle` → Java
+- `Cargo.toml` → Rust
+
+The `workspaces` table stores the `primary_language` for each workspace, enabling language-specific parsing and indexing strategies.
+
+#### Cross-Language Communication Model
+
+**Critical Rule:** Different languages in a monorepo **cannot import from each other** (different runtimes). Communication happens via API calls, not code imports.
+
+**How It Works:**
+- **NOT tracked as imports:** Python backend ←/→ TypeScript frontend (impossible to import)
+- **Tracked as API calls:** HTTP requests, GraphQL queries, gRPC calls
+- **Storage:** `cross_repo_dependencies` table with `dependency_type = 'api'`
+- **Detection:** HTTP client usage, API endpoint calls parsed during indexing
+
+#### Example: Python Backend + TypeScript Frontend Monorepo
+
+```typescript
+// Monorepo structure
+my-fullstack-app/
+├── apps/
+│   ├── backend/     # Python (FastAPI)
+│   │   ├── requirements.txt
+│   │   ├── main.py
+│   │   └── openapi.yaml
+│   └── frontend/    # TypeScript (React)
+│       ├── package.json
+│       └── src/
+│           └── api-client.ts
+├── packages/
+│   └── shared-types/  # TypeScript (shared between services)
+│       └── package.json
+
+// Detection Result
+{
+  repo_id: "my-fullstack-app",
+  repo_type: "monorepo",
+  workspaces: [
+    {
+      workspace_id: "backend",
+      primary_language: "python",
+      package_manager: "pip",
+      root_path: "apps/backend"
+    },
+    {
+      workspace_id: "frontend",
+      primary_language: "typescript",
+      package_manager: "npm",
+      root_path: "apps/frontend"
+    },
+    {
+      workspace_id: "shared-types",
+      primary_language: "typescript",
+      package_manager: "npm",
+      root_path: "packages/shared-types"
+    }
+  ]
+}
+```
+
+**Cross-Language API Call Detection:**
+
+```typescript
+// frontend/src/api-client.ts
+fetch('/api/users')  // ← Detected as API call to backend
+
+// Stored in cross_repo_dependencies
+{
+  source_repo_id: "my-fullstack-app",
+  source_workspace_id: "frontend",
+  target_workspace_id: "backend",
+  dependency_type: "api",
+  api_contracts: {
+    endpoint: "/api/users",
+    method: "GET"
+  }
+}
+```
+
+#### Indexing Strategy for Multi-Language Monorepos
+
+1. **Workspace Detection:** Scan for package managers, detect primary language per workspace
+2. **Language-Specific Parsing:** Use Python parser for backend, TypeScript parser for frontend
+3. **Import Resolution:**
+   - **Same-language imports:** Resolve normally (TypeScript → TypeScript)
+   - **Cross-language references:** Skip import resolution, detect API calls instead
+4. **API Call Detection:** Parse HTTP clients, GraphQL queries, gRPC proto files
+5. **Dependency Storage:** Cross-language deps stored as `dependency_type = 'api'`
+
+#### Search Behavior
+
+**Workspace-Scoped Search (Respects Language Boundaries):**
+
+```typescript
+await search_codebase({
+  query: "user authentication",
+  scope: "workspace",
+  workspace_id: "backend"  // Only Python backend code
+});
+
+// Returns: Python authentication functions only
+// Does NOT return TypeScript frontend code
+```
+
+**Cross-Workspace Search (API-Linked Results):**
+
+```typescript
+await search_codebase({
+  query: "user API implementation",
+  scope: "repository",
+  repo_id: "my-fullstack-app"
+});
+
+// Returns:
+// 1. Backend (Python): User model, auth endpoints
+// 2. Frontend (TypeScript): API client calling user endpoints
+// 3. Linked via API contracts (not imports)
+```
+
+#### Import Chain Expansion Rules
+
+**Rule:** Import chain expansion **stops at language boundaries**.
+
+```typescript
+// frontend/src/UserList.tsx (TypeScript)
+import { UserService } from './services/user.service';  // ✅ Expand (same language)
+
+// services/user.service.ts (TypeScript)
+import { apiClient } from './api-client';  // ✅ Expand (same language)
+
+// api-client.ts (TypeScript)
+fetch('/api/users')  // ❌ STOP - Different language (Python backend)
+                     // Treat as API call, not import
+```
+
+**Why This Matters:**
+- Prevents infinite loops across language boundaries
+- Correctly models actual code architecture (API-based communication)
+- Ensures search results reflect real dependencies (not fake import chains)
 
 ---
 
@@ -1341,6 +1540,236 @@ SYMBOLS: authenticateUser, User, AuthError"
 2. Generate embedding via Ollama (mxbai-embed-large)
 3. Store in appropriate table
 ```
+
+---
+
+### Incremental Indexing Status
+
+**Current Implementation:** Base indexing pipeline is complete (file discovery → parsing → chunking → embedding → storage)
+
+**What Works Today:**
+- SHA256 hash computation during file discovery (`file-walker.ts`)
+- `file_hash` column stored in `code_files` table
+- `force_reindex` parameter support (`version-tracker.ts`)
+- Version tracking and comparison for reference repositories
+- Full re-index capability via `clearRepositoryData()`
+
+**What's Planned (Phase 6):**
+- Hash comparison logic to classify files:
+  - **New files:** Not in database → Full indexing
+  - **Modified files:** Hash changed → Delete old chunks, re-index
+  - **Unchanged files:** Hash match → Skip completely
+  - **Deleted files:** In DB but not on disk → Remove with CASCADE
+- Process only new + modified files (skip unchanged)
+- Expected performance after implementation:
+  - 100 changed files: <15 seconds
+  - Entire codebase unchanged: <5 seconds (hash comparison only)
+
+**Current Behavior:**
+- All files are re-indexed on each `index_repository` call
+- Use `force_reindex: true` to explicitly clear all data before re-indexing
+- Use `incremental: true` (default) to enable hash comparison when implemented
+- Repository version tracking works for reference repositories (skip re-index if version unchanged)
+
+**Usage Example:**
+
+```typescript
+// Current: Full re-index (until Phase 6 implements hash comparison)
+await index_repository({
+  repo_path: "/workspace/my-app",
+  repo_id: "my-app",
+  incremental: true  // Planned feature, not yet functional
+});
+
+// Force full re-index (clear all data first)
+await index_repository({
+  repo_path: "/workspace/my-app",
+  repo_id: "my-app",
+  force_reindex: true  // ✅ Works today
+});
+
+// Version-based re-indexing for reference repos (works today)
+await index_repository({
+  repo_path: "/references/nestjs",
+  repo_id: "nestjs-ref",
+  repo_type: "reference",
+  version: "v10.3.0"  // ✅ Works - skips if version unchanged
+});
+```
+
+**Implementation Gap:**
+- Missing `compareFileHashes()` function to query existing hashes and classify files
+- Missing selective chunk deletion (currently deletes entire repository data)
+- MCP `index_repository` tool not yet created (Phase 5)
+
+See `docs/tasks/phase-6.md` for incremental indexing implementation plan.
+
+---
+
+### Example: Learning from Reference Repositories
+
+**Scenario:** Learning NestJS patterns while building your application
+
+#### Setup: Index Your App + Reference Framework
+
+```typescript
+// 1. Index your application
+await index_repository({
+  repo_path: '/workspace/my-nestjs-app',
+  repo_id: 'my-app',
+  repo_type: 'monolithic'
+});
+
+// 2. Index NestJS framework as reference
+await index_repository({
+  repo_path: '/references/nestjs',
+  repo_id: 'nestjs-ref',
+  repo_type: 'reference',
+  version: 'v10.3.0',
+  metadata: {
+    upstream_url: 'https://github.com/nestjs/nest',
+    indexed_for: 'learning'
+  }
+});
+```
+
+#### Query 1: Default Search (Your Code Only)
+
+```typescript
+await search_codebase({
+  query: 'how to implement guards',
+  scope: 'repository',
+  repo_id: 'my-app'
+});
+
+// Returns: Only your application code
+// Results:
+// - my-app/src/guards/auth.guard.ts (0.95)
+// - my-app/src/guards/roles.guard.ts (0.88)
+// - my-app/src/middleware/auth.middleware.ts (0.82)
+//
+// No reference repository results (excluded by default)
+```
+
+#### Query 2: Include Reference Examples for Learning
+
+```typescript
+await search_codebase({
+  query: 'how to implement guards',
+  scope: 'global',
+  include_references: true,
+  max_reference_results: 5
+});
+
+// Returns: Mixed results prioritized by repository type
+//
+// Primary Code (priority 1.0):
+// 1. my-app/src/guards/auth.guard.ts (0.95 * 1.0 = 0.95)
+// 2. my-app/src/guards/roles.guard.ts (0.88 * 1.0 = 0.88)
+// 3. my-app/src/middleware/auth.middleware.ts (0.82 * 1.0 = 0.82)
+//
+// Reference Examples (priority 0.6):
+// 4. nestjs-ref/packages/common/guards/auth-guard.ts (0.92 * 0.6 = 0.55)
+// 5. nestjs-ref/sample/guards-sample/guards/auth.guard.ts (0.87 * 0.6 = 0.52)
+// 6. nestjs-ref/packages/core/guards/guards-consumer.ts (0.85 * 0.6 = 0.51)
+//
+// Max 5 reference results, sorted by adjusted priority
+// Your code always appears first
+```
+
+#### Query 3: List All Indexed Repositories
+
+```typescript
+await list_indexed_repos();
+
+// Returns repository metadata grouped by type
+{
+  repositories: [
+    {
+      repo_id: 'my-app',
+      repo_type: 'monolithic',
+      file_count: 450,
+      chunk_count: 2340,
+      last_indexed: '2025-01-18T10:30:00Z',
+      indexed_at: '2025-01-18T10:30:00Z'
+    },
+    {
+      repo_id: 'nestjs-ref',
+      repo_type: 'reference',
+      version: 'v10.3.0',
+      upstream_url: 'https://github.com/nestjs/nest',
+      file_count: 850,
+      chunk_count: 4200,
+      last_indexed: '2025-01-15T08:20:00Z',
+      exclude_from_default_search: true,
+      indexed_for: 'learning'
+    }
+  ]
+}
+```
+
+#### Query 4: Version Update Workflow
+
+```typescript
+// Pull latest NestJS version
+// $ cd /references/nestjs
+// $ git pull
+// Updated to v11.0.0
+
+// Re-index with new version
+await index_repository({
+  repo_path: '/references/nestjs',
+  repo_id: 'nestjs-ref',
+  repo_type: 'reference',
+  version: 'v11.0.0',  // Version changed
+  force_reindex: true   // Clear old data first
+});
+
+// System behavior:
+// 1. Detects version change (v10.3.0 → v11.0.0)
+// 2. Calls clearRepositoryData() to remove old index
+// 3. Re-indexes entire repository with new version
+// 4. Updates metadata with new version and timestamp
+```
+
+#### Query 5: Documentation Repository Example
+
+```typescript
+// Index library documentation
+await index_repository({
+  repo_path: '/workspace/my-app/docs/libraries',
+  repo_id: 'lib-docs',
+  repo_type: 'documentation'
+});
+
+// Search including documentation
+await search_codebase({
+  query: 'API usage examples',
+  scope: 'global',
+  include_documentation: true,
+  max_documentation_results: 3
+});
+
+// Returns:
+// Primary Code (priority 1.0):
+// - my-app/src/api/client.ts (0.88)
+// - my-app/src/services/user.service.ts (0.85)
+//
+// Documentation (priority 0.5):
+// - lib-docs/api-guide.md (0.90 * 0.5 = 0.45)
+// - lib-docs/examples/authentication.md (0.87 * 0.5 = 0.44)
+// - lib-docs/best-practices.md (0.83 * 0.5 = 0.42)
+//
+// Max 3 documentation results
+```
+
+**Key Behaviors:**
+
+1. **Default Exclusion:** Reference and documentation repos excluded from default search
+2. **Priority Weighting:** Your code (1.0) > Libraries (0.8) > References (0.6) > Docs (0.5)
+3. **Result Limits:** Max 5 reference results, max 3 documentation results per query
+4. **Grouping:** Results grouped by repository type in output
+5. **Version Tracking:** Reference repos track version, skip re-index if unchanged
 
 ---
 

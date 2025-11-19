@@ -13,7 +13,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { logger } from '@utils/logger';
-import type { PackageJsonInfo } from '@/types/workspace';
+import { type PackageJsonInfo } from '@/types/workspace';
 
 /**
  * Service type classification

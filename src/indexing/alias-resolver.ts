@@ -12,7 +12,7 @@
 
 import * as path from 'node:path';
 
-import type { WorkspaceConfig } from '@indexing/workspace-detector';
+import { type WorkspaceConfig } from '@indexing/workspace-detector';
 import { logger } from '@utils/logger';
 
 /**

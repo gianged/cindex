@@ -6,7 +6,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { logger } from '@utils/logger';
-import type { ChunkType } from '@/types/indexing';
+import { type ChunkType } from '@/types/indexing';
 
 /**
  * Markdown code block

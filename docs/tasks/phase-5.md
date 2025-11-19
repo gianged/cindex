@@ -1,6 +1,7 @@
 # Phase 5: MCP Server & Tools
 
 **Estimated Duration:** 4-5 days **Priority:** Critical - User-facing interface
+**Status:** ⚠️ ~8% Complete (1/13 tools implemented: delete_repository)
 
 ---
 
@@ -97,7 +98,7 @@ This delivers **13 MCP tools total** (4 core + 9 specialized for multi-project/A
       input (query required, api_types[] ('rest'|'graphql'|'grpc'), service_filter, repo_filter,
       include_deprecated false, max_results 20), search api_endpoints table, rank by embedding
       similarity, return endpoints with implementation links
-- [ ] **[MANAGEMENT]** Create `src/mcp/delete-repository.ts`: delete repositories and all associated
+- [x] **[MANAGEMENT]** Create `src/mcp/delete-repository.ts`: delete repositories and all associated
       data, input (repo_ids[] required), validate all repo_ids exist before deletion (fail-fast),
       delete all chunks/files/symbols/workspaces/services for each repo, return deletion statistics
       per repository
@@ -167,10 +168,10 @@ Phase 5 is complete when:
 - [ ] **[REFERENCE REPOS]** list_indexed_repos includes version and upstream_url for reference repos
 - [ ] **[REFERENCE REPOS]** list_indexed_repos groups repos by type (main/libraries/references/docs)
 - [ ] **[MULTI-PROJECT]** search_api_contracts finds API endpoints with implementation links
-- [ ] **[MANAGEMENT]** delete_repository validates all repo_ids before deletion (fail-fast)
-- [ ] **[MANAGEMENT]** delete_repository returns statistics for each deleted repository
-- [ ] **[MANAGEMENT]** delete_repository rejects entire request if any repo_id is invalid
-- [ ] **[MANAGEMENT]** delete_repository removes all associated data (files, chunks, symbols, workspaces, services)
+- [x] **[MANAGEMENT]** delete_repository validates all repo_ids before deletion (fail-fast)
+- [x] **[MANAGEMENT]** delete_repository returns statistics for each deleted repository
+- [x] **[MANAGEMENT]** delete_repository rejects entire request if any repo_id is invalid
+- [x] **[MANAGEMENT]** delete_repository removes all associated data (files, chunks, symbols, workspaces, services)
 - [ ] Input validation catches all invalid parameters with clear messages
 - [ ] Error messages are user-friendly with actionable suggestions
 - [ ] All outputs formatted in Markdown with syntax highlighting

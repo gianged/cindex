@@ -2,7 +2,7 @@
  * Indexing strategy based on repository type
  * Defines which indexing steps to perform for different repo types
  */
-import type { RepositoryType } from '@/types/database';
+import { type RepositoryType } from '@/types/database';
 
 /**
  * Indexing options for a repository

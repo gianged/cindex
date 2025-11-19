@@ -139,6 +139,7 @@ export class CodeChunker {
     return {
       chunk_id: uuidv4(),
       file_path: file.absolute_path,
+      language: file.language,
       chunk_content: summaryContent,
       chunk_type: ChunkType.FileSummary,
       start_line: 1,
@@ -187,6 +188,7 @@ export class CodeChunker {
     return {
       chunk_id: uuidv4(),
       file_path: file.absolute_path,
+      language: file.language,
       chunk_content: importContent,
       chunk_type: ChunkType.ImportBlock,
       start_line: startLine,
@@ -239,6 +241,7 @@ export class CodeChunker {
       chunks.push({
         chunk_id: uuidv4(),
         file_path: file.absolute_path,
+        language: file.language,
         chunk_content: func.code_text,
         chunk_type: ChunkType.Function,
         start_line: func.start_line,
@@ -285,6 +288,7 @@ export class CodeChunker {
       chunks.push({
         chunk_id: uuidv4(),
         file_path: file.absolute_path,
+        language: file.language,
         chunk_content: cls.code_text,
         chunk_type: ChunkType.Class,
         start_line: cls.start_line,
@@ -353,6 +357,7 @@ export class CodeChunker {
             chunks.push({
               chunk_id: uuidv4(),
               file_path: file.absolute_path,
+              language: file.language,
               chunk_content: blockContent,
               chunk_type: ChunkType.Block,
               start_line: blockStart,
@@ -383,6 +388,7 @@ export class CodeChunker {
         chunks.push({
           chunk_id: uuidv4(),
           file_path: file.absolute_path,
+          language: file.language,
           chunk_content: blockContent,
           chunk_type: ChunkType.Block,
           start_line: blockStart,
@@ -432,6 +438,7 @@ export class CodeChunker {
       chunks.push({
         chunk_id: uuidv4(),
         file_path: file.absolute_path,
+        language: file.language,
         chunk_content: exportContent,
         chunk_type: ChunkType.Block,
         start_line: exportLines[0],

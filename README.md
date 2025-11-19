@@ -124,6 +124,14 @@ All settings are configurable via environment variables in MCP config:
 
 ## MCP Tools
 
+**13 Tools Available:**
+- **4 Core Tools:** search_codebase, get_file_context, find_symbol_definition, index_repository
+- **9 Specialized Tools:** list_indexed_repos, list_workspaces, list_services, get_workspace_context, get_service_context, find_cross_workspace_usages, find_cross_service_calls, search_api_contracts, delete_repository
+
+See [docs/overview.md Section 1.5](./docs/overview.md) for complete tool documentation including multi-project/monorepo/microservice support.
+
+---
+
 ### `search_codebase`
 
 Semantic search with multi-stage retrieval
@@ -154,6 +162,48 @@ Index or re-index a codebase
 - Incremental updates (default)
 - Language filtering
 - Progress tracking
+
+**Repository Types:**
+- `monolithic` - Single application codebase
+- `monorepo` - Multi-package workspace (Turborepo, Nx, pnpm)
+- `microservice` - Individual service repository
+- `library` - Shared library (your own packages)
+- `reference` - External framework for learning (NestJS, React, Vue)
+- `documentation` - Markdown documentation repository
+
+**Reference Repository Indexing:**
+
+When indexing external frameworks or libraries for learning:
+
+```json
+{
+  "repo_type": "reference",
+  "version": "v10.3.0",
+  "force_reindex": false,
+  "metadata": {
+    "upstream_url": "https://github.com/nestjs/nest",
+    "indexed_for": "learning"
+  }
+}
+```
+
+**Search with References:**
+
+```json
+{
+  "query": "how to implement guards",
+  "scope": "global",
+  "include_references": true,
+  "include_documentation": true,
+  "max_reference_results": 5,
+  "max_documentation_results": 3
+}
+```
+
+- `include_references` - Include reference repos in search (default: false)
+- `include_documentation` - Include documentation repos (default: false)
+- Reference results have lower priority (0.6 vs 1.0 for your code)
+- Documentation results have lowest priority (0.5)
 
 ## Architecture
 

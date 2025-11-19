@@ -150,6 +150,80 @@ npm start
 - Use `force_reindex: true` to override version check
 - Track last_indexed timestamp for outdated detection
 
+## Current Implementation Status
+
+**What's Complete:** ✅
+
+- **Database Schema** - All tables created with multi-project support (Phase 1: 100%)
+- **Type System** - Complete TypeScript type definitions (Phase 1: 100%)
+- **Base Indexing** - File discovery, parsing, chunking (Phase 2: 100%)
+  - File walker with .gitignore support ✅
+  - Tree-sitter parsing for supported languages ✅
+  - Semantic chunking (functions, classes, blocks) ✅
+  - Metadata extraction (imports, exports, complexity) ✅
+  - Workspace detection for monorepos ✅
+  - Service detection for microservices ✅
+  - Alias resolution (tsconfig paths, npm workspaces) ✅
+  - Indexing strategies by repo type ✅
+  - Markdown documentation indexing ✅
+- **Version Tracking** - Reference repository versioning (Phase 2: 100%)
+  - `getRepositoryVersion()`, `updateRepositoryVersion()` ✅
+  - `shouldReindex()` with version comparison ✅
+  - `clearRepositoryData()` for full re-index ✅
+  - `deleteRepository()` with statistics ✅
+  - `upsertRepository()`, `getIndexingStats()` ✅
+  - `listIndexedRepositories()`, `listReferenceRepositories()` ✅
+  - `isRepositoryOutdated()` ✅
+- **MCP Tools** - Repository deletion (Phase 5: ~8%)
+  - `delete_repository` tool implemented ✅
+  - Input validation with fail-fast ✅
+  - Deletion statistics per repository ✅
+
+**What's In Progress:** ⚠️
+
+- **Embeddings & Summaries** (Phase 3: ~83%)
+  - LLM summary generation via Ollama ✅
+  - Embedding generation (mxbai-embed-large) ✅
+  - Symbol extraction and indexing ✅
+  - Database persistence with batch optimization ✅
+  - Progress tracking with ETA calculation ✅
+  - Pipeline orchestrator ✅
+  - API contract parsing (REST/GraphQL/gRPC) ⚠️ Deferred to Phase 3.1
+
+**What's Planned:** ⚠️
+- **Multi-Stage Retrieval** (Phase 4: not started)
+  - 7-stage retrieval pipeline
+  - Scope filtering (multi-project)
+  - Query processing
+  - File-level retrieval
+  - Chunk-level retrieval
+  - Symbol resolution
+  - Import chain expansion
+  - API contract enrichment
+  - Context assembly
+- **Remaining MCP Tools** (Phase 5: pending)
+  - 12 of 13 tools remaining (search_codebase, get_file_context, find_symbol, index_repository, list_indexed_repos, list_workspaces, list_services, get_workspace_context, get_service_context, find_cross_workspace_usages, find_cross_service_calls, search_api_contracts)
+  - Context formatting and error handling
+  - Input validation framework
+- **Optimization** (Phase 6: not started)
+  - Incremental indexing (hash comparison logic)
+  - HNSW index optimization
+  - Query caching (embeddings + results)
+  - Edge case handling
+  - Performance monitoring
+  - Scale testing
+
+**Overall Completion: ~48%**
+
+- Phase 1: ✅ 100% Complete
+- Phase 2: ✅ 100% Complete
+- Phase 3: ⚠️ ~83% Complete (Core pipeline done, API parsing deferred)
+- Phase 4: ❌ 0% Complete
+- Phase 5: ⚠️ ~8% Complete
+- Phase 6: ❌ 0% Complete
+
+See `docs/tasks/phase-*.md` for detailed task breakdowns and checklists.
+
 ## Project Structure
 
 ```
@@ -165,12 +239,17 @@ src/
 │   ├── alias-resolver.ts      # Import alias resolution
 │   ├── indexing-strategy.ts   # Repository type indexing strategies
 │   ├── markdown-indexer.ts    # Markdown documentation indexing
-│   └── version-tracker.ts     # Version tracking and re-indexing
+│   ├── version-tracker.ts     # Version tracking and re-indexing
+│   ├── summary.ts        # LLM-based file summary generation
+│   ├── embeddings.ts     # Embedding generation with enhanced text
+│   ├── symbols.ts        # Symbol extraction and embedding
+│   └── orchestrator.ts   # Pipeline coordination (Phases 1-3)
 ├── retrieval/            # Search and retrieval
 │   ├── vector-search.ts  # pgvector similarity search with scope filtering
 │   └── deduplicator.ts   # Result prioritization and deduplication
 ├── database/             # PostgreSQL client
-│   └── client.ts         # Connection pool management
+│   ├── client.ts         # Connection pool management
+│   └── writer.ts         # Database persistence with batch optimization
 ├── mcp/                  # MCP tool implementations (future)
 │   ├── search-codebase.ts
 │   ├── get-file-context.ts
@@ -186,7 +265,8 @@ src/
 ├── utils/                # Shared utilities
 │   ├── ollama.ts         # Ollama API client
 │   ├── logger.ts         # Logging utilities
-│   └── errors.ts         # Error handling
+│   ├── errors.ts         # Error handling
+│   └── progress.ts       # Progress tracking with ETA
 └── config/               # Configuration
     └── env.ts            # Environment variable handling
 
@@ -461,7 +541,9 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b`, `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESH
 
 **IMPORTANT: Always use path aliases, never relative imports.**
 
-**Path Aliases (configured in tsconfig.json):**
+**See [docs/syntax.md](docs/syntax.md) for MCP SDK, pgvector, and tree-sitter syntax references.**
+
+#### Path Aliases (configured in tsconfig.json)
 
 - `@/*` - Root src directory (use for types: `@/types/indexing`)
 - `@config/*` - Config directory
@@ -472,32 +554,114 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b`, `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESH
 - `@types/*` - Types directory (alternative to `@/types/*`)
 - `@utils/*` - Utils directory
 
-**Type Import Style (ESLint: `consistent-type-imports` with `inline-type-imports`):**
+#### Import Grouping Standard
+
+**Always group imports in this order:**
+
+1. External packages (npm dependencies)
+2. Blank line
+3. Internal imports (path aliases: @config, @database, @indexing, etc.)
+4. Blank line (optional)
+5. Type-only imports (if separated)
+
+**Example from [src/index.ts](src/index.ts):**
 
 ```typescript
-// ✅ Type-only imports: use 'import type'
+// 1. External packages (with .js extension for ESM modules like MCP SDK)
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 
-// ✅ Mixed imports: use inline 'type' keyword
-import { createDatabaseClient, type DatabaseConfig } from '@database/client';
-import type { WorkspaceConfig } from '@indexing/workspace-detector';
-// ✅ No file extensions (.ts, .js) in imports
-import { logger } from '@utils/logger'; // ✅ Correct
-import { logger } from '@utils/logger.js'; // ❌ Wrong
-import type { CindexConfig } from '@/types/config';
-import { ChunkType, NodeType, type ParseResult } from '@/types/indexing';
+// 2. Blank line
 
-// ❌ Never use relative imports
-import { logger } from '../utils/logger.js'; // ❌ Wrong
-
-import type { WorkspaceConfig } from './workspace-detector.js'; // ❌ Wrong
+// 3. Internal imports (path aliases, NO extensions)
+import { loadConfig, validateConfig } from '@config/env';
+import { createDatabaseClient } from '@database/client';
+import { CindexError } from '@utils/errors';
+import { initLogger, logger } from '@utils/logger';
+import { createOllamaClient } from '@utils/ollama';
 ```
 
-**Node.js built-ins: Always use `node:` protocol prefix**
+#### MCP SDK Import Patterns
+
+**For MCP SDK packages, include `.js` extension (ESM requirement):**
 
 ```typescript
-import * as fs from 'fs/promises'; // ❌ Wrong
-import * as fs from 'node:fs/promises'; // ✅ Correct
-import * as path from 'node:path'; // ✅ Correct
+// ✅ Correct - MCP SDK imports WITH .js extension
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+// ❌ Wrong - Missing .js extension
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
+```
+
+**See [docs/syntax.md](docs/syntax.md) for complete MCP SDK patterns including:**
+- Tool registration
+- Resource registration
+- Prompt registration
+- Transport setup
+- Client usage
+
+#### Type Import Style (ESLint: `consistent-type-imports` with `inline-type-imports`)
+
+**IMPORTANT: Always use inline `type` keyword and combine duplicate imports from the same module.**
+
+```typescript
+// ✅ Correct - Inline type keyword for all types
+import { type WorkspaceConfig } from '@indexing/workspace-detector';
+import { type CindexConfig } from '@/types/config';
+
+// ✅ Correct - Mixed imports: use inline 'type' keyword
+import { createDatabaseClient, type DatabaseConfig } from '@database/client';
+import { ChunkType, NodeType, type ParseResult } from '@/types/indexing';
+
+// ✅ Correct - Combine duplicate imports from same module
+import { type DiscoveredFile, type ParseResult, type ParsedNode, type NodeType, type ExtractedSymbol } from '@/types/indexing';
+
+// ❌ Wrong - Separate import type statements from same module
+import type { DiscoveredFile, ParseResult } from '@/types/indexing';
+import type { ExtractedSymbol } from '@/types/indexing';
+
+// ✅ No file extensions (.ts, .js) for internal imports
+import { logger } from '@utils/logger'; // ✅ Correct
+import { logger } from '@utils/logger.js'; // ❌ Wrong
+
+// ❌ Never use relative imports
+import { logger } from '../utils/logger'; // ❌ Wrong
+import { type EmbeddingGenerator } from './embeddings'; // ❌ Wrong
+import { type EmbeddingGenerator } from '@indexing/embeddings'; // ✅ Correct
+```
+
+#### Node.js Built-in Imports: Always use `node:` protocol prefix
+
+```typescript
+// ❌ Wrong - Missing node: prefix
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
+
+// ✅ Correct - With node: prefix
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
+```
+
+#### Example: Complete Import Block
+
+From [src/indexing/symbols.ts](src/indexing/symbols.ts):
+
+```typescript
+// Node.js built-ins
+import { randomUUID } from 'node:crypto';
+
+// Blank line
+
+// Internal imports with inline type keywords (combined from same module)
+import { type DiscoveredFile, type ParseResult, type ParsedNode, type NodeType, type ExtractedSymbol } from '@/types/indexing';
+import { type EmbeddingGenerator } from '@indexing/embeddings';
+import { logger } from '@utils/logger';
 ```
 
 ### Database Operations
@@ -1005,6 +1169,334 @@ When implementing multi-project features, follow this order:
 7. **Phase 7:** Monorepo support (workspaces, aliases)
 
 **Key Principle:** Build incrementally. Each phase should work independently and add value.
+
+### 11. Multi-Language Monorepo Development
+
+**Key Architecture Principle:** Different languages in a monorepo are tracked as separate workspaces with API-based communication, not code imports.
+
+#### Workspace Language Detection
+
+Each workspace must identify its primary language for correct parser selection:
+
+```typescript
+// Implement in workspace-detector.ts
+const detectWorkspaceLanguage = (workspacePath: string): string => {
+  const indicators = {
+    typescript: ['package.json', 'tsconfig.json'],
+    python: ['requirements.txt', 'pyproject.toml', 'setup.py'],
+    go: ['go.mod'],
+    java: ['pom.xml', 'build.gradle'],
+    rust: ['Cargo.toml'],
+    ruby: ['Gemfile'],
+    php: ['composer.json']
+  };
+
+  for (const [lang, files] of Object.entries(indicators)) {
+    for (const file of files) {
+      if (existsSync(join(workspacePath, file))) {
+        return lang;
+      }
+    }
+  }
+
+  return 'unknown';
+};
+
+// Store in workspaces table
+await db.query(`
+  INSERT INTO workspaces (workspace_id, package_name, workspace_path, primary_language)
+  VALUES ($1, $2, $3, $4)
+`, [workspaceId, packageName, workspacePath, primaryLanguage]);
+```
+
+#### Cross-Language Communication Detection
+
+**Critical Rule:** Never attempt to resolve imports across different languages. Treat cross-language communication as API calls.
+
+```typescript
+// Detect API calls instead of imports
+const detectCrossLanguageAPICalls = async (chunk: CodeChunk): Promise<void> => {
+  // Parse HTTP client usage in code
+  const apiCalls = parseAPIEndpoints(chunk.code);
+
+  for (const call of apiCalls) {
+    // Resolve which workspace owns this endpoint
+    const targetWorkspace = await resolveAPIEndpoint(call.endpoint);
+
+    if (targetWorkspace && targetWorkspace.primary_language !== chunk.workspace_language) {
+      // Store as cross-service dependency (API type, not import type)
+      await db.query(`
+        INSERT INTO cross_repo_dependencies (
+          source_repo_id, source_workspace_id,
+          target_repo_id, target_workspace_id,
+          dependency_type, api_contracts
+        ) VALUES ($1, $2, $3, $4, 'api', $5)
+      `, [
+        chunk.repo_id, chunk.workspace_id,
+        targetWorkspace.repo_id, targetWorkspace.workspace_id,
+        JSON.stringify({ endpoint: call.endpoint, method: call.method })
+      ]);
+    }
+  }
+};
+
+// Example patterns to detect:
+const apiPatterns = {
+  // JavaScript/TypeScript
+  fetch: /fetch\(['"]([^'"]+)['"]/g,
+  axios: /axios\.(get|post|put|delete)\(['"]([^'"]+)['"]/g,
+  // Python
+  requests: /requests\.(get|post|put|delete)\(['"]([^'"]+)['"]/g,
+  httpx: /httpx\.(get|post|put|delete)\(['"]([^'"]+)['"]/g,
+  // Go
+  httpGet: /http\.Get\("([^"]+)"\)/g,
+  httpPost: /http\.Post\("([^"]+)"/g
+};
+```
+
+#### Import Chain Expansion Rules
+
+**Rule:** Stop import chain expansion at language boundaries.
+
+```typescript
+const shouldExpandImport = (currentFile: FileMetadata, importedFile: FileMetadata): boolean => {
+  // Check if files belong to same-language workspace
+  if (currentFile.workspace_language === importedFile.workspace_language) {
+    return true;  // ✅ Same language - expand normally
+  }
+
+  // Different languages = impossible to import
+  logger.info('Import chain stopped at language boundary', {
+    from: `${currentFile.file_path} (${currentFile.workspace_language})`,
+    to: `${importedFile.file_path} (${importedFile.workspace_language})`,
+    reason: 'Cross-language imports not possible'
+  });
+
+  return false;  // ❌ Different language - don't expand
+};
+
+// Example import chain
+// frontend/src/UserList.tsx (TypeScript)
+//   → import './services/user.service' ✅ Expand (TypeScript → TypeScript)
+//     → import './api-client' ✅ Expand (TypeScript → TypeScript)
+//       → fetch('/api/users') ❌ STOP (TypeScript → Python API)
+//                                Treat as API call, not import
+```
+
+#### Example Implementation: Python Backend + TypeScript Frontend
+
+```typescript
+// Monorepo structure
+my-fullstack-app/
+├── apps/
+│   ├── backend/     # Python (FastAPI)
+│   │   ├── requirements.txt
+│   │   ├── main.py
+│   │   └── openapi.yaml
+│   └── frontend/    # TypeScript (React)
+│       ├── package.json
+│       └── src/
+│           └── api/
+│               └── client.ts
+
+// 1. Workspace Detection Result
+{
+  workspaces: [
+    {
+      workspace_id: 'backend',
+      primary_language: 'python',
+      package_manager: 'pip',
+      root_path: 'apps/backend'
+    },
+    {
+      workspace_id: 'frontend',
+      primary_language: 'typescript',
+      package_manager: 'npm',
+      root_path: 'apps/frontend'
+    }
+  ]
+}
+
+// 2. Indexing Process
+// Backend (Python) - Use Python parser
+parseFile('apps/backend/main.py', {
+  language: 'python',
+  workspace_id: 'backend',
+  workspace_language: 'python'
+});
+
+// Frontend (TypeScript) - Use TypeScript parser
+parseFile('apps/frontend/src/api/client.ts', {
+  language: 'typescript',
+  workspace_id: 'frontend',
+  workspace_language: 'typescript'
+});
+
+// 3. Cross-Language API Call Detection
+// File: apps/frontend/src/api/client.ts
+const code = `
+export const fetchUsers = async () => {
+  return fetch('/api/users');  // ← Detected as API call
+};
+`;
+
+// Detected API call stored as:
+{
+  source_workspace_id: 'frontend',
+  target_workspace_id: 'backend',  // Resolved from endpoint
+  dependency_type: 'api',
+  api_contracts: {
+    endpoint: '/api/users',
+    method: 'GET'
+  }
+}
+
+// 4. Search Behavior
+await search_codebase({
+  query: 'user fetching',
+  scope: 'repository',
+  repo_id: 'my-fullstack-app'
+});
+
+// Returns (grouped by workspace):
+{
+  results: [
+    {
+      workspace: 'frontend',
+      language: 'typescript',
+      chunks: [
+        {file: 'src/api/client.ts', function: 'fetchUsers'}
+      ]
+    },
+    {
+      workspace: 'backend',
+      language: 'python',
+      chunks: [
+        {file: 'main.py', function: 'get_users'}
+      ],
+      api_contract: {endpoint: '/api/users', method: 'GET'}
+    }
+  ]
+}
+```
+
+#### Testing Multi-Language Monorepos
+
+**Test 1: Language Detection**
+```typescript
+test('detects Python workspace correctly', async () => {
+  const workspace = await detectWorkspace('/monorepo/apps/backend');
+  expect(workspace.primary_language).toBe('python');
+  expect(workspace.package_manager).toBe('pip');
+});
+
+test('detects TypeScript workspace correctly', async () => {
+  const workspace = await detectWorkspace('/monorepo/apps/frontend');
+  expect(workspace.primary_language).toBe('typescript');
+  expect(workspace.package_manager).toBe('npm');
+});
+```
+
+**Test 2: Cross-Language API Call Detection**
+```typescript
+test('detects API call from TypeScript to Python', async () => {
+  await indexRepository({
+    repo_path: '/monorepo',
+    repo_type: 'monorepo'
+  });
+
+  const deps = await db.query(`
+    SELECT * FROM cross_repo_dependencies
+    WHERE source_workspace_id = 'frontend'
+      AND target_workspace_id = 'backend'
+      AND dependency_type = 'api'
+  `);
+
+  expect(deps.rows).toHaveLength(1);
+  expect(deps.rows[0]?.api_contracts).toMatchObject({
+    endpoint: '/api/users',
+    method: 'GET'
+  });
+});
+```
+
+**Test 3: Import Expansion Stops at Language Boundaries**
+```typescript
+test('does not expand imports across languages', async () => {
+  const results = await searchCodebase({
+    query: 'user authentication',
+    scope: 'repository',
+    repo_id: 'my-fullstack-app'
+  });
+
+  // Frontend results should NOT include Python backend files
+  const frontendResults = results.chunks.filter(c => c.workspace_id === 'frontend');
+  const hasBackendImports = frontendResults.some(c =>
+    c.imports?.some(imp => imp.workspace_id === 'backend')
+  );
+
+  expect(hasBackendImports).toBe(false);
+
+  // But should have API contract links
+  expect(frontendResults[0]?.api_calls).toContainEqual(
+    expect.objectContaining({endpoint: '/api/users'})
+  );
+});
+```
+
+**Test 4: Workspace-Scoped Search Respects Language**
+```typescript
+test('workspace search returns only matching language', async () => {
+  const results = await searchCodebase({
+    query: 'user service',
+    scope: 'workspace',
+    workspace_id: 'backend'
+  });
+
+  // Should only return Python files
+  results.chunks.forEach(chunk => {
+    expect(chunk.language).toBe('python');
+    expect(chunk.workspace_id).toBe('backend');
+  });
+});
+```
+
+#### Error Handling
+
+**Don't fail on mixed-language workspaces:**
+```typescript
+const detectWorkspaceLanguage = (workspacePath: string): string => {
+  const languages = [];
+
+  if (existsSync(join(workspacePath, 'package.json'))) languages.push('typescript');
+  if (existsSync(join(workspacePath, 'requirements.txt'))) languages.push('python');
+
+  if (languages.length > 1) {
+    logger.warn('Mixed-language workspace detected', {
+      workspace: workspacePath,
+      languages,
+      action: 'Using first detected language'
+    });
+  }
+
+  return languages[0] ?? 'unknown';
+};
+```
+
+**Log cross-language import attempts (for debugging):**
+```typescript
+if (currentFile.workspace_language !== importedFile.workspace_language) {
+  logger.debug('Cross-language reference detected', {
+    from: currentFile.file_path,
+    from_language: currentFile.workspace_language,
+    to: importedFile.file_path,
+    to_language: importedFile.workspace_language,
+    note: 'This should be an API call, not a code import'
+  });
+}
+```
+
+**Critical Reminder:** Never attempt to resolve imports across different languages. Cross-language communication MUST be tracked as API calls, not import dependencies.
 
 ## Additional Resources
 

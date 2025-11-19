@@ -82,7 +82,7 @@ export interface CodeSymbol extends RepositoryContext {
 /**
  * Symbol types
  */
-export type SymbolType = 'function' | 'class' | 'variable' | 'type';
+export type SymbolType = 'function' | 'class' | 'variable' | 'interface' | 'type' | 'constant' | 'method';
 
 /**
  * Workspace/package registry for monorepo support

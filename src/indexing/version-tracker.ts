@@ -2,16 +2,16 @@
  * Version tracking and re-indexing workflow
  * Handles repository version management and determines when to re-index
  */
-import type { Pool, QueryResult } from 'pg';
+import { type Pool, type QueryResult } from 'pg';
 
 import { logger } from '@utils/logger';
-import type {
-  CountResult,
-  RepositoryMetadata,
-  RepositoryType,
-  RepositoryVersionQueryResult,
-  RepositoryWithCountResult,
-  RepoTypeQueryResult,
+import {
+  type CountResult,
+  type RepositoryMetadata,
+  type RepositoryType,
+  type RepositoryVersionQueryResult,
+  type RepositoryWithCountResult,
+  type RepoTypeQueryResult,
 } from '@/types/database';
 
 /**

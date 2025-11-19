@@ -260,6 +260,9 @@ export interface CodeChunkInput {
   /** Absolute file path */
   file_path: string;
 
+  /** Programming language (e.g., 'typescript', 'python', 'rust') */
+  language: string;
+
   /** Raw code content */
   chunk_content: string;
 
@@ -456,4 +459,166 @@ export interface FileDiscoveryStats {
 
   /** Total lines of code */
   total_lines: number;
+}
+
+/**
+ * ============================================================================
+ * Phase 3: Embedding & Summary Generation Types
+ * ============================================================================
+ */
+
+/**
+ * File summary result (LLM or rule-based)
+ */
+export interface FileSummary {
+  /** File path */
+  file_path: string;
+
+  /** Generated summary text */
+  summary_text: string;
+
+  /** Method used to generate summary */
+  summary_method: 'llm' | 'rule-based';
+
+  /** Model name used (if LLM method) */
+  model_used?: string;
+
+  /** Time taken to generate summary in milliseconds */
+  generation_time_ms: number;
+}
+
+/**
+ * Chunk embedding result
+ */
+export interface ChunkEmbedding {
+  /** Chunk ID (UUID) */
+  chunk_id: string;
+
+  /** Generated embedding vector */
+  embedding: number[];
+
+  /** Embedding model name */
+  embedding_model: string;
+
+  /** Vector dimension */
+  dimension: number;
+
+  /** Time taken to generate embedding in milliseconds */
+  generation_time_ms: number;
+
+  /** Enhanced text used for embedding */
+  enhanced_text: string;
+}
+
+/**
+ * Extracted symbol with embedding
+ */
+export interface ExtractedSymbol {
+  /** Symbol ID (UUID) */
+  symbol_id: string;
+
+  /** Symbol name */
+  symbol_name: string;
+
+  /** Symbol type */
+  symbol_type: 'function' | 'class' | 'variable' | 'interface' | 'type' | 'constant' | 'method';
+
+  /** File path where symbol is defined */
+  file_path: string;
+
+  /** Line number */
+  line_number: number;
+
+  /** Symbol definition text */
+  definition: string;
+
+  /** Symbol embedding vector */
+  embedding: number[];
+
+  /** Symbol scope */
+  scope: 'exported' | 'internal';
+
+  /** Repository context (multi-project) */
+  repo_id?: string;
+  workspace_id?: string;
+  package_name?: string;
+  service_id?: string;
+}
+
+/**
+ * Indexing pipeline stage
+ */
+export enum IndexingStage {
+  Starting = 'starting',
+  Discovering = 'discovering',
+  Parsing = 'parsing',
+  Chunking = 'chunking',
+  Summarizing = 'summarizing',
+  Embedding = 'embedding',
+  Symbols = 'symbols',
+  Persisting = 'persisting',
+  Complete = 'complete',
+  Failed = 'failed',
+}
+
+/**
+ * Complete indexing statistics
+ */
+export interface IndexingStats {
+  /** Total files to process */
+  files_total: number;
+
+  /** Files successfully processed */
+  files_processed: number;
+
+  /** Files that failed processing */
+  files_failed: number;
+
+  /** Total chunks generated */
+  chunks_total: number;
+
+  /** Chunks successfully embedded */
+  chunks_embedded: number;
+
+  /** Symbols extracted */
+  symbols_extracted: number;
+
+  /** Total time taken in milliseconds */
+  total_time_ms: number;
+
+  /** Average time per file in milliseconds */
+  avg_file_time_ms: number;
+
+  /** Summaries generated using LLM */
+  summaries_llm: number;
+
+  /** Summaries generated using rule-based fallback */
+  summaries_fallback: number;
+
+  /** Current indexing stage */
+  stage: IndexingStage;
+
+  /** Errors encountered during indexing */
+  errors: {
+    file_path?: string;
+    stage: IndexingStage;
+    error: string;
+  }[];
+}
+
+/**
+ * Batch insert operation result
+ */
+export interface BatchInsertResult {
+  /** Number of successfully inserted records */
+  inserted: number;
+
+  /** Number of failed inserts */
+  failed: number;
+
+  /** Errors encountered */
+  errors: {
+    batch: number;
+    error: string;
+  }[];
 }

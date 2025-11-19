@@ -2,7 +2,7 @@
  * MCP Tool: delete_repository
  * Deletes one or more repositories and all associated data
  */
-import type { Pool } from 'pg';
+import { type Pool } from 'pg';
 
 import { deleteRepository, type DeletionStats } from '@indexing/version-tracker';
 import { logger } from '@utils/logger';

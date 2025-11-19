@@ -2,11 +2,10 @@
  * Result deduplication and prioritization
  * Removes duplicate chunks and prioritizes results based on repository type
  */
-import type { Pool, QueryResult } from 'pg';
+import { type Pool, type QueryResult } from 'pg';
 
-import type { CodeChunk, RepoTypeQueryResult, RepositoryType } from '@/types/database';
-
-import type { SearchResult } from './vector-search';
+import { type SearchResult } from '@retrieval/vector-search';
+import { type CodeChunk, type RepositoryType, type RepoTypeQueryResult } from '@/types/database';
 
 /**
  * Priority multipliers for different repository types

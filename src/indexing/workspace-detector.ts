@@ -16,7 +16,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { logger } from '@utils/logger';
-import type { PackageJsonInfo, TsConfigInfo } from '@/types/workspace';
+import { type PackageJsonInfo, type TsConfigInfo } from '@/types/workspace';
 
 /**
  * Workspace configuration type

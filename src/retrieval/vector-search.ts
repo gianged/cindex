@@ -2,14 +2,14 @@
  * Vector similarity search with scope filtering
  * Supports filtering by repository type, excluding references and documentation by default
  */
-import type { Pool, QueryResult } from 'pg';
+import { type Pool, type QueryResult } from 'pg';
 
-import type {
-  CodeChunk,
-  CodeFile,
-  RepoIdQueryResult,
-  RepoTypeQueryResult,
-  RepositoryType,
+import {
+  type CodeChunk,
+  type CodeFile,
+  type RepoIdQueryResult,
+  type RepositoryType,
+  type RepoTypeQueryResult,
 } from '@/types/database';
 
 /**
