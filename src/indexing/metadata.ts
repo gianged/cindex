@@ -10,6 +10,7 @@
  * - API endpoint patterns (for microservices)
  */
 
+import { type ImportsData, type ImportType } from '@/types/database';
 import { NodeType, type APIEndpointInfo, type ChunkMetadata, type ParseResult } from '@/types/indexing';
 
 /**
@@ -26,6 +27,56 @@ const WORKSPACE_IMPORT_PATTERNS = [
  * Metadata extractor for code analysis
  */
 export class MetadataExtractor {
+  /**
+   * Convert parse result imports to structured database format
+   *
+   * Transforms ImportInfo[] from the parser to ImportsData for database storage,
+   * classifying each import by type (external, workspace, relative, absolute).
+   *
+   * @param parseResult - Parse result with import information
+   * @returns Structured imports data with line numbers and classification
+   */
+  public convertImportsToStructuredFormat = (parseResult: ParseResult): ImportsData => {
+    const imports = parseResult.imports.map((imp) => {
+      // Classify import type
+      const importType = this.classifyImportType(imp.source);
+
+      return {
+        path: imp.source,
+        line: imp.line_number,
+        symbols: imp.is_namespace && imp.namespace_alias ? [imp.namespace_alias] : imp.symbols,
+        type: importType,
+      };
+    });
+
+    return { imports };
+  };
+
+  /**
+   * Classify import type based on import path
+   *
+   * @param importPath - Import source path
+   * @returns Import type classification
+   */
+  private classifyImportType = (importPath: string): ImportType => {
+    // Workspace imports: @workspace/, @orgname/, @/, ~/
+    if (WORKSPACE_IMPORT_PATTERNS.some((pattern) => pattern.test(importPath))) {
+      return 'workspace';
+    }
+
+    // Relative imports: ./ or ../
+    if (importPath.startsWith('./') || importPath.startsWith('../')) {
+      return 'relative';
+    }
+
+    // Absolute imports: / prefix (rare but possible)
+    if (importPath.startsWith('/')) {
+      return 'absolute';
+    }
+
+    // External imports: node_modules packages
+    return 'external';
+  };
   /**
    * Extract comprehensive metadata from parsed code
    *

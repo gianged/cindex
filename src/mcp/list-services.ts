@@ -4,7 +4,7 @@
  */
 import { type Pool } from 'pg';
 
-import { listServices } from '@database/queries';
+import { getServiceAPIEndpoints, listServices } from '@database/queries';
 import { formatServiceList, type ServiceInfo } from '@mcp/formatter';
 import { validateArray, validateBoolean, validateRepoId } from '@mcp/validator';
 import { logger } from '@utils/logger';
@@ -73,13 +73,15 @@ export const listServicesTool = async (db: Pool, input: ListServicesInput): Prom
   }
 
   // Transform services to match formatter's expected type
-  const services: ServiceInfo[] = dbServices.map((service) => ({
-    service_id: service.service_id,
-    service_name: service.service_name,
-    service_type: service.service_type,
-    repo_id: service.repo_id,
-    api_endpoints: undefined, // TODO: Implement API endpoint fetching when includeApiEndpoints is true
-  }));
+  const services: ServiceInfo[] = await Promise.all(
+    dbServices.map(async (service) => ({
+      service_id: service.service_id,
+      service_name: service.service_name,
+      service_type: service.service_type,
+      repo_id: service.repo_id,
+      api_endpoints: includeApiEndpoints ? await getServiceAPIEndpoints(db, service.service_id) : undefined,
+    }))
+  );
 
   // Format output
   const formattedResult = formatServiceList(services);

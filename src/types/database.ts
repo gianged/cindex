@@ -48,6 +48,39 @@ export interface ChunkMetadata {
 }
 
 /**
+ * Import types for structured import tracking
+ */
+export type ImportType = 'external' | 'workspace' | 'relative' | 'absolute';
+
+/**
+ * Structured import data with line numbers
+ */
+export interface ImportInfo {
+  path: string; // Import path (e.g., "express", "@workspace/auth", "./utils")
+  line: number; // Line number where import appears
+  symbols: string[]; // Imported symbols (e.g., ["default"], ["FastAPI", "Request"])
+  type: ImportType; // Import type classification
+}
+
+/**
+ * Imports container (JSONB structure in database)
+ */
+export interface ImportsData {
+  imports: ImportInfo[];
+}
+
+/**
+ * Helper function to extract import paths from structured imports data
+ *
+ * @param importsData - Structured imports data or null
+ * @returns Array of import paths (for backwards compatibility)
+ */
+export const getImportPaths = (importsData: ImportsData | null): string[] => {
+  if (!importsData) return [];
+  return importsData.imports.map((imp) => imp.path);
+};
+
+/**
  * File-level metadata (extended with workspace/service context)
  */
 export interface CodeFile extends RepositoryContext {
@@ -58,7 +91,7 @@ export interface CodeFile extends RepositoryContext {
   summary_embedding: number[] | null;
   language: string;
   total_lines: number | null;
-  imports: string[] | null;
+  imports: ImportsData | null;
   exports: string[] | null;
   file_hash: string; // SHA256
   last_modified: Date | null;

@@ -7,7 +7,7 @@
 import { type Pool } from 'pg';
 
 import { DatabaseQueryError } from '@utils/errors';
-import { type CodeChunk, type CodeFile, type Service, type Workspace } from '@/types/database';
+import { type CodeChunk, type CodeFile, getImportPaths, type Service, type Workspace } from '@/types/database';
 import { type APIEndpointMatch, type ResolvedSymbol } from '@/types/retrieval';
 
 // Re-export database types for MCP tool usage
@@ -93,7 +93,7 @@ export const getFileContext = async (
     }
 
     // Get callees (files imported by this file)
-    const callees = includeCallees ? (file.imports ?? []) : [];
+    const callees = includeCallees ? getImportPaths(file.imports) : [];
 
     return {
       file,
@@ -663,6 +663,34 @@ export const searchAPIContracts = async (
  * @param options - Search options (packageName or workspaceId, plus filters)
  * @returns Array of workspace IDs that use this package
  */
+/**
+ * File-level import information for cross-workspace tracking
+ */
+export interface CrossWorkspaceFileImport {
+  file_path: string;
+  line_number: number;
+  symbols: string[];
+  import_type: string;
+}
+
+/**
+ * Cross-workspace usage with file-level detail
+ */
+export interface CrossWorkspaceUsageDetail {
+  workspace_id: string;
+  package_name: string;
+  file_imports: CrossWorkspaceFileImport[];
+  file_count: number;
+  total_imports: number;
+}
+
+/**
+ * Find cross-workspace usages with file-level and line-level detail
+ *
+ * @param db - Database connection pool
+ * @param options - Query options
+ * @returns Array of workspace usages with file/line details
+ */
 export const findCrossWorkspaceUsages = async (
   db: Pool,
   options: {
@@ -672,12 +700,14 @@ export const findCrossWorkspaceUsages = async (
     includeIndirect?: boolean;
     maxDepth?: number;
   }
-): Promise<{ workspace_id: string; package_name: string; file_count: number }[]> => {
+): Promise<CrossWorkspaceUsageDetail[]> => {
   try {
-    // Note: symbolName, includeIndirect, and maxDepth are not yet implemented
-    // This is a simplified implementation that only does basic workspace filtering
     const packageName = options.packageName;
     const workspaceId = options.workspaceId;
+
+    // Note: maxDepth parameter reserved for future transitive dependency tracking
+    // Currently only direct imports are supported
+    void options.maxDepth;
 
     if (!packageName && !workspaceId) {
       throw new Error('Either packageName or workspaceId is required');
@@ -688,20 +718,64 @@ export const findCrossWorkspaceUsages = async (
       const excludeClause = workspaceId ? `AND workspace_id != $2` : '';
       const params = workspaceId ? [packageName, workspaceId] : [packageName];
 
+      // Query to find all files that import the target package
+      // Uses JSONB operators to search within the structured imports
       const sql = `
         SELECT
           workspace_id,
           package_name,
-          COUNT(DISTINCT file_path) as file_count
+          file_path,
+          imports
         FROM code_files
-        WHERE $1 = ANY(imports)
+        WHERE imports IS NOT NULL
+          AND imports @> jsonb_build_object('imports', jsonb_build_array(jsonb_build_object('path', $1)))
           ${excludeClause}
-        GROUP BY workspace_id, package_name
-        ORDER BY file_count DESC, package_name
+        ORDER BY workspace_id, package_name, file_path
       `;
 
-      const result = await db.query<{ workspace_id: string; package_name: string; file_count: number }>(sql, params);
-      return result.rows;
+      const result = await db.query<{
+        workspace_id: string;
+        package_name: string;
+        file_path: string;
+        imports: { imports: { path: string; line: number; symbols: string[]; type: string }[] };
+      }>(sql, params);
+
+      // Group results by workspace and extract file-level import details
+      const workspaceMap = new Map<string, CrossWorkspaceUsageDetail>();
+
+      for (const row of result.rows) {
+        const key = `${row.workspace_id}:${row.package_name}`;
+
+        if (!workspaceMap.has(key)) {
+          workspaceMap.set(key, {
+            workspace_id: row.workspace_id,
+            package_name: row.package_name,
+            file_imports: [],
+            file_count: 0,
+            total_imports: 0,
+          });
+        }
+
+        const usage = workspaceMap.get(key);
+        if (!usage) continue; // Should never happen, but safety check
+
+        // Extract imports matching the target package
+        const matchingImports = row.imports.imports.filter((imp) => imp.path === packageName);
+
+        for (const imp of matchingImports) {
+          usage.file_imports.push({
+            file_path: row.file_path,
+            line_number: imp.line,
+            symbols: imp.symbols,
+            import_type: imp.type,
+          });
+          usage.total_imports++;
+        }
+
+        usage.file_count++;
+      }
+
+      return Array.from(workspaceMap.values()).sort((a, b) => b.total_imports - a.total_imports);
     }
 
     // If only workspaceId, return empty (not yet implemented)

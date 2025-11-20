@@ -33,7 +33,7 @@ CREATE TABLE code_files (
     summary_embedding vector(1024), -- Must match EMBEDDING_DIMENSIONS
     language TEXT NOT NULL,
     total_lines INT,
-    imports TEXT[],
+    imports JSONB,
     exports TEXT[],
     file_hash TEXT NOT NULL,
     last_modified TIMESTAMP,
@@ -73,7 +73,7 @@ COMMENT ON COLUMN code_chunks.chunk_type IS 'file_summary, function, class, impo
 COMMENT ON COLUMN code_chunks.metadata IS 'JSONB: {function_name, class_name, complexity, dependencies, is_exported, parent_class}';
 COMMENT ON COLUMN code_chunks.embedding IS 'Enhanced text format: "FILE: path | TYPE: type | LANG: lang | CODE: content | SYMBOLS: list"';
 
-COMMENT ON COLUMN code_files.imports IS 'Array format: ["import express from \"express\"", "from fastapi import FastAPI"]';
+COMMENT ON COLUMN code_files.imports IS 'JSONB format: { "imports": [{ "path": "express", "line": 1, "symbols": ["default"], "type": "external" }] }. Types: "external", "workspace", "relative", "absolute"';
 COMMENT ON COLUMN code_files.exports IS 'Array format: ["exportedFunction", "MyClass", "API_KEY"]';
 
 -- Multi-Project Support (nullable columns for backward compatibility)

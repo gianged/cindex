@@ -4,7 +4,7 @@
  */
 import { type Pool } from 'pg';
 
-import { findCrossWorkspaceUsages } from '@database/queries';
+import { findCrossWorkspaceUsages, type CrossWorkspaceUsageDetail } from '@database/queries';
 import { formatCrossWorkspaceUsages } from '@mcp/formatter';
 import { validateBoolean, validateNumberInRange, validateString, validateWorkspaceId } from '@mcp/validator';
 import { logger } from '@utils/logger';
@@ -99,16 +99,17 @@ export const findCrossWorkspaceUsagesTool = async (
   }
 
   // Transform database results to match expected output format
-  // Note: Current implementation only has aggregate data (workspace_id, package_name, file_count)
-  // TODO: Implement detailed file-level tracking with line numbers and depths
-  const usages = dbUsages.map((usage) => ({
-    source_workspace_id: usage.workspace_id,
-    source_package_name: usage.package_name,
-    symbol_name: symbolName,
-    file_path: '', // TODO: Implement file-level tracking
-    line_number: 0, // TODO: Implement line-level tracking
-    depth: 1, // TODO: Implement dependency depth tracking
-  }));
+  // Flatten file-level imports into individual usage records
+  const usages = dbUsages.flatMap((workspaceUsage: CrossWorkspaceUsageDetail) =>
+    workspaceUsage.file_imports.map((fileImport) => ({
+      source_workspace_id: workspaceUsage.workspace_id,
+      source_package_name: workspaceUsage.package_name,
+      symbol_name: symbolName ?? fileImport.symbols.join(', '), // Use symbol filter or list all imported symbols
+      file_path: fileImport.file_path,
+      line_number: fileImport.line_number,
+      depth: 1, // Currently only direct imports supported (transitive tracking in future)
+    }))
+  );
 
   // Format output
   const formattedResult = formatCrossWorkspaceUsages(usages, packageName ?? workspaceId ?? 'unknown');

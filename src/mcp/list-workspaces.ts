@@ -4,7 +4,7 @@
  */
 import { type Pool } from 'pg';
 
-import { listWorkspaces } from '@database/queries';
+import { getWorkspaceDependencies, getWorkspaceDependents, listWorkspaces } from '@database/queries';
 import { formatWorkspaceList, type WorkspaceInfo } from '@mcp/formatter';
 import { validateBoolean, validateRepoId } from '@mcp/validator';
 import { logger } from '@utils/logger';
@@ -69,13 +69,15 @@ export const listWorkspacesTool = async (db: Pool, input: ListWorkspacesInput): 
   }
 
   // Transform workspaces to match formatter's expected type
-  const workspaces: WorkspaceInfo[] = dbWorkspaces.map((workspace) => ({
-    workspace_id: workspace.workspace_id,
-    package_name: workspace.package_name,
-    workspace_path: workspace.workspace_path,
-    dependencies: undefined, // TODO: Implement dependency fetching when includeDependencies is true
-    dependents: undefined, // TODO: Implement dependents fetching when includeDependencies is true
-  }));
+  const workspaces: WorkspaceInfo[] = await Promise.all(
+    dbWorkspaces.map(async (workspace) => ({
+      workspace_id: workspace.workspace_id,
+      package_name: workspace.package_name,
+      workspace_path: workspace.workspace_path,
+      dependencies: includeDependencies ? await getWorkspaceDependencies(db, workspace.workspace_id) : undefined,
+      dependents: includeDependencies ? await getWorkspaceDependents(db, workspace.package_name) : undefined,
+    }))
+  );
 
   // Format output (note: formatWorkspaceList only accepts workspaces array, not repoId as second parameter)
   const formattedResult = formatWorkspaceList(workspaces);

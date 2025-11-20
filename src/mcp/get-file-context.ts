@@ -15,7 +15,7 @@ import {
   validateWorkspaceId,
 } from '@mcp/validator';
 import { logger } from '@utils/logger';
-import { type CodeFile } from '@/types/database';
+import { getImportPaths, type CodeFile } from '@/types/database';
 
 /**
  * Input schema for get_file_context tool
@@ -49,10 +49,19 @@ export interface GetFileContextOutput {
 
 /**
  * Filter imports based on workspace/service boundaries
+ *
+ * Queries the database to get workspace_id/service_id for each import,
+ * then filters based on boundary options by comparing with source file context.
+ *
+ * @param imports - List of import paths to filter
+ * @param file - Source file with workspace_id/service_id context
+ * @param options - Boundary filtering options
+ * @param db - Database connection pool
+ * @returns Filtered list of imports respecting boundaries
  */
-const filterImportsByBoundaries = (
+const filterImportsByBoundaries = async (
   imports: string[],
-  _file: CodeFile,
+  file: CodeFile,
   options: {
     workspace?: string;
     includeWorkspaceOnly?: boolean;
@@ -61,8 +70,8 @@ const filterImportsByBoundaries = (
     respectWorkspaceBoundaries?: boolean;
     respectServiceBoundaries?: boolean;
   },
-  _db: Pool
-): string[] => {
+  db: Pool
+): Promise<string[]> => {
   // If no boundary restrictions, return all imports
   if (
     !options.includeWorkspaceOnly &&
@@ -73,49 +82,110 @@ const filterImportsByBoundaries = (
     return imports;
   }
 
-  // Filter imports based on boundaries
-  /**
-   * TODO: Implement boundary-aware import filtering (Phase 4 - Stage 0)
-   *
-   * This function should filter imports based on workspace/service boundaries
-   * by querying the code_files table to check each import's context.
-   *
-   * Implementation requirements:
-   * 1. Query code_files for each import path to get workspace_id/service_id
-   * 2. Compare with the source file's workspace_id/service_id
-   * 3. Filter based on boundary options:
-   *    - includeWorkspaceOnly: Only include imports within same workspace
-   *    - includeServiceOnly: Only include imports within same service
-   *    - respectWorkspaceBoundaries: Stop at workspace boundaries
-   *    - respectServiceBoundaries: Stop at service boundaries
-   *
-   * SQL query pattern:
-   * ```sql
-   * SELECT file_path, workspace_id, service_id
-   * FROM code_files
-   * WHERE file_path = ANY($1)
-   * ```
-   *
-   * Filtering logic:
-   * - If includeWorkspaceOnly: Keep only imports where workspace_id matches source
-   * - If includeServiceOnly: Keep only imports where service_id matches source
-   * - Mark cross-boundary imports for truncation in import chain expansion
-   *
-   * Related: Phase 4 boundary-aware search (docs/tasks/phase-4.md)
-   */
-  // For now, return all imports (boundary filtering deferred to Phase 4)
-  return imports;
+  // If no imports, return empty array
+  if (imports.length === 0) {
+    return [];
+  }
+
+  // Query code_files to get workspace_id/service_id for all imports
+  const query = `
+    SELECT file_path, workspace_id, service_id
+    FROM code_files
+    WHERE file_path = ANY($1)
+  `;
+
+  const result = await db.query<{
+    file_path: string;
+    workspace_id: string | null;
+    service_id: string | null;
+  }>(query, [imports]);
+
+  // Create a map for fast lookup
+  const importMetadata = new Map<string, { workspace_id: string | null; service_id: string | null }>();
+  for (const row of result.rows) {
+    importMetadata.set(row.file_path, {
+      workspace_id: row.workspace_id,
+      service_id: row.service_id,
+    });
+  }
+
+  // Filter imports based on boundary options
+  const filteredImports: string[] = [];
+
+  for (const importPath of imports) {
+    const metadata = importMetadata.get(importPath);
+
+    // If import not found in database, keep it (might be external package)
+    if (!metadata) {
+      filteredImports.push(importPath);
+      continue;
+    }
+
+    let shouldInclude = true;
+
+    // includeWorkspaceOnly: Only include imports within same workspace
+    if (options.includeWorkspaceOnly) {
+      if (file.workspace_id && metadata.workspace_id !== file.workspace_id) {
+        shouldInclude = false;
+      }
+    }
+
+    // includeServiceOnly: Only include imports within same service
+    if (options.includeServiceOnly) {
+      if (file.service_id && metadata.service_id !== file.service_id) {
+        shouldInclude = false;
+      }
+    }
+
+    // respectWorkspaceBoundaries: Stop at workspace boundaries
+    if (options.respectWorkspaceBoundaries) {
+      if (file.workspace_id && metadata.workspace_id && metadata.workspace_id !== file.workspace_id) {
+        shouldInclude = false;
+      }
+    }
+
+    // respectServiceBoundaries: Stop at service boundaries
+    if (options.respectServiceBoundaries) {
+      if (file.service_id && metadata.service_id && metadata.service_id !== file.service_id) {
+        shouldInclude = false;
+      }
+    }
+
+    if (shouldInclude) {
+      filteredImports.push(importPath);
+    }
+  }
+
+  return filteredImports;
 };
 
 /**
- * Expand import chain recursively
+ * Expand import chain recursively with boundary-aware filtering
+ *
+ * @param db - Database connection pool
+ * @param filePath - File path to expand
+ * @param depth - Current depth in the import chain
+ * @param maxDepth - Maximum depth to traverse
+ * @param visited - Set of already visited files (prevents circular imports)
+ * @param boundaryOptions - Boundary filtering options
+ * @param sourceFile - Source file context for boundary comparison
+ * @returns Map of file paths to their metadata (summary, exports, depth)
  */
 const expandImportChain = async (
   db: Pool,
   filePath: string,
   depth: number,
   maxDepth: number,
-  visited: Set<string>
+  visited: Set<string>,
+  boundaryOptions: {
+    workspace?: string;
+    includeWorkspaceOnly?: boolean;
+    service?: string;
+    includeServiceOnly?: boolean;
+    respectWorkspaceBoundaries?: boolean;
+    respectServiceBoundaries?: boolean;
+  },
+  sourceFile: CodeFile
 ): Promise<Map<string, { summary: string; exports: string[]; depth: number }>> => {
   const result = new Map<string, { summary: string; exports: string[]; depth: number }>();
 
@@ -125,9 +195,9 @@ const expandImportChain = async (
 
   visited.add(filePath);
 
-  // Get file metadata
+  // Get file metadata (need workspace_id/service_id for boundary filtering)
   const fileResult = await db.query<CodeFile>(
-    `SELECT file_path, file_summary, exports, imports FROM code_files WHERE file_path = $1`,
+    `SELECT file_path, file_summary, exports, imports, workspace_id, service_id FROM code_files WHERE file_path = $1`,
     [filePath]
   );
 
@@ -144,11 +214,22 @@ const expandImportChain = async (
     depth,
   });
 
-  // Recursively expand imports
-  const imports = file.imports ?? [];
-  for (const importPath of imports) {
+  // Get imports and apply boundary filtering
+  const imports = getImportPaths(file.imports);
+  const filteredImports = await filterImportsByBoundaries(imports, sourceFile, boundaryOptions, db);
+
+  // Recursively expand filtered imports
+  for (const importPath of filteredImports) {
     if (!visited.has(importPath)) {
-      const subImports = await expandImportChain(db, importPath, depth + 1, maxDepth, visited);
+      const subImports = await expandImportChain(
+        db,
+        importPath,
+        depth + 1,
+        maxDepth,
+        visited,
+        boundaryOptions,
+        sourceFile
+      );
       for (const [path, data] of subImports) {
         result.set(path, data);
       }
@@ -258,7 +339,7 @@ export const getFileContextTool = async (db: Pool, input: GetFileContextInput): 
   }
 
   // Filter imports based on boundaries
-  const filteredCallees = filterImportsByBoundaries(
+  const filteredCallees = await filterImportsByBoundaries(
     context.callees,
     context.file,
     {
@@ -272,8 +353,23 @@ export const getFileContextTool = async (db: Pool, input: GetFileContextInput): 
     db
   );
 
-  // Expand import chain
-  const importChain = await expandImportChain(db, filePath, 0, importDepth, new Set<string>());
+  // Expand import chain with boundary filtering
+  const importChain = await expandImportChain(
+    db,
+    filePath,
+    0,
+    importDepth,
+    new Set<string>(),
+    {
+      workspace,
+      includeWorkspaceOnly,
+      service,
+      includeServiceOnly,
+      respectWorkspaceBoundaries,
+      respectServiceBoundaries,
+    },
+    context.file
+  );
 
   // Format output
   const lines: string[] = [];

@@ -93,43 +93,35 @@ export interface IndexRepositoryOutput {
 /**
  * Progress callback for MCP notifications
  *
- * TODO: Research and implement MCP SDK notification mechanism
+ * Implementation Status: ✅ COMPLETE
  *
- * Context:
- * Indexing large repositories (1M+ LoC) can take 10-30+ minutes. Currently
- * the MCP tool appears unresponsive during this time, providing no feedback
- * to the user about progress or estimated completion time.
+ * Uses MCP SDK's `sendLoggingMessage()` method to send structured progress
+ * updates to the MCP client during long-running indexing operations (10-30+ minutes).
  *
- * Research needed:
- * 1. Check @modelcontextprotocol/sdk for progress notification APIs
- * 2. Investigate if MCP protocol supports server→client notifications
- * 3. Determine if notifications appear in Claude Code UI
- * 4. Find reference implementations in other MCP servers
+ * Implementation Details:
+ * - Method: McpServer.sendLoggingMessage() with level="info"
+ * - Format: Structured JSON data with type="progress"
+ * - Fields: stage, current, total, percentage, message, eta_seconds, timestamp
+ * - Logger: "cindex.indexing" for easy filtering in MCP logs
+ * - Error Handling: Progress notification failures don't interrupt indexing
  *
- * Potential approaches:
- * A. MCP SDK notifications (if supported):
- *    - Use McpServer.sendNotification() or similar API
- *    - Send progress updates every N seconds during indexing
- *    - Include stage, progress %, ETA, and current operation
+ * User Experience:
+ * - Progress messages appear in MCP server logs (Claude Code settings > MCP Servers > cindex > Logs)
+ * - Real-time visibility into 9-stage indexing pipeline:
+ *   1. File Discovery, 2. Code Parsing, 3. Summary Generation, 4. Embedding Generation,
+ *   5. Symbol Extraction, 6. Database Writing, 7. Workspace Detection,
+ *   8. Service Detection, 9. API Contract Parsing
+ * - Includes: Current/total counts, percentage complete, ETA in seconds
  *
- * B. Alternative: Logging approach (if notifications not supported):
- *    - Use logger.info() with structured progress messages
- *    - Users can view progress in MCP logs (Claude Code settings)
- *    - Less ideal but still provides visibility
- *
- * C. Status polling (if interactive):
- *    - Expose a separate get_indexing_status tool
- *    - Users can call it while indexing is in progress
- *    - Requires storing indexing state in memory
+ * Technical Notes:
+ * - MCP protocol supports `notifications/message` (LoggingMessageNotification)
+ * - Custom progress notifications are not well-supported by most MCP clients
+ * - This approach uses standard logging infrastructure for maximum compatibility
+ * - Future: If Claude Code adds UI for logging messages, progress will auto-display
  *
  * References:
- * - MCP SDK docs: https://github.com/modelcontextprotocol/sdk
- * - MCP protocol spec: https://spec.modelcontextprotocol.io/
- * - Claude Code MCP integration docs
- *
- * Current workaround:
- * Progress is logged via logger but not visible to user in real-time.
- * Function signature kept for future implementation.
+ * - MCP SDK: @modelcontextprotocol/sdk v1.22.0+
+ * - Implementation: src/index.ts (index_repository tool registration)
  */
 type ProgressCallback = (progress: {
   stage: string;

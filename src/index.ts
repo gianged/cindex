@@ -6,7 +6,6 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-
 import { type z } from 'zod';
 
 import { loadConfig, validateConfig } from '@config/env';
@@ -19,36 +18,36 @@ import { IndexingOrchestrator } from '@indexing/orchestrator';
 import { CodeParser } from '@indexing/parser';
 import { FileSummaryGenerator } from '@indexing/summary';
 import { SymbolExtractor } from '@indexing/symbols';
-import {
-  SearchCodebaseSchema,
-  GetFileContextSchema,
-  FindSymbolSchema,
-  IndexRepositorySchema,
-  DeleteRepositorySchema,
-  ListIndexedReposSchema,
-  ListWorkspacesSchema,
-  ListServicesSchema,
-  GetWorkspaceContextSchema,
-  GetServiceContextSchema,
-  FindCrossWorkspaceUsagesSchema,
-  FindCrossServiceCallsSchema,
-  SearchAPIContractsSchema,
-} from '@mcp/schemas';
 import { toMcpSchema } from '@mcp/schema-adapter';
 import {
-  searchCodebaseMCP,
-  getFileContextMCP,
-  findSymbolMCP,
-  indexRepositoryMCP,
+  DeleteRepositorySchema,
+  FindCrossServiceCallsSchema,
+  FindCrossWorkspaceUsagesSchema,
+  FindSymbolSchema,
+  GetFileContextSchema,
+  GetServiceContextSchema,
+  GetWorkspaceContextSchema,
+  IndexRepositorySchema,
+  ListIndexedReposSchema,
+  ListServicesSchema,
+  ListWorkspacesSchema,
+  SearchAPIContractsSchema,
+  SearchCodebaseSchema,
+} from '@mcp/schemas';
+import {
   deleteRepositoryMCP,
-  listIndexedReposMCP,
-  listWorkspacesMCP,
-  listServicesMCP,
-  getWorkspaceContextMCP,
-  getServiceContextMCP,
-  findCrossWorkspaceUsagesMCP,
   findCrossServiceCallsMCP,
+  findCrossWorkspaceUsagesMCP,
+  findSymbolMCP,
+  getFileContextMCP,
+  getServiceContextMCP,
+  getWorkspaceContextMCP,
+  indexRepositoryMCP,
+  listIndexedReposMCP,
+  listServicesMCP,
+  listWorkspacesMCP,
   searchAPIContractsMCP,
+  searchCodebaseMCP,
 } from '@mcp/tools-mcp';
 import { CindexError } from '@utils/errors';
 import { initLogger, logger } from '@utils/logger';
@@ -93,10 +92,7 @@ let appState: AppState | null = null;
  * @param options - Indexing options
  * @returns Configured orchestrator instance
  */
-const createOrchestrator = (
-  repoPath: string,
-  options: IndexingOptions
-): IndexingOrchestrator => {
+const createOrchestrator = (repoPath: string, options: IndexingOptions): IndexingOrchestrator => {
   if (!appState) {
     throw new Error('Application not initialized');
   }
@@ -223,7 +219,38 @@ const initializeServer = async (): Promise<AppState> => {
       // indexRepositoryTool handles the conversion. FileWalker accepts Partial<IndexingOptions>
       // and only uses the properties it needs, so this type assertion is safe.
       const orchestrator = createOrchestrator(params.repo_path, params as unknown as IndexingOptions);
-      return indexRepositoryMCP(orchestrator, params);
+
+      // Create progress callback that sends MCP logging messages
+      const progressCallback = (progress: {
+        stage: string;
+        current: number;
+        total: number;
+        message: string;
+        eta_seconds?: number;
+      }) => {
+        // Send progress as structured logging message to MCP client
+        server
+          .sendLoggingMessage({
+            level: 'info',
+            logger: 'cindex.indexing',
+            data: {
+              type: 'progress',
+              stage: progress.stage,
+              current: progress.current,
+              total: progress.total,
+              percentage: progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0,
+              message: progress.message,
+              eta_seconds: progress.eta_seconds,
+              timestamp: new Date().toISOString(),
+            },
+          })
+          .catch((err: unknown) => {
+            // Don't fail indexing if notification fails
+            logger.error('Failed to send progress notification', { error: err });
+          });
+      };
+
+      return indexRepositoryMCP(orchestrator, params, progressCallback);
     }
   );
 

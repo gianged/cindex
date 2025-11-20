@@ -16,6 +16,7 @@ import { type CodeChunker } from '@indexing/chunker';
 import { type EmbeddingGenerator } from '@indexing/embeddings';
 import { type FileWalker } from '@indexing/file-walker';
 import { type APIImplementationLinker } from '@indexing/implementation-linker';
+import { MetadataExtractor } from '@indexing/metadata';
 import { type CodeParser } from '@indexing/parser';
 import { type FileSummaryGenerator } from '@indexing/summary';
 import { type SymbolExtractor } from '@indexing/symbols';
@@ -41,6 +42,7 @@ import {
   type FileSummary,
   type IndexingOptions,
   type IndexingStats,
+  type ParseResult,
 } from '@/types/indexing';
 import { type DetectedService } from '@/types/service';
 import { type DetectedWorkspace } from '@/types/workspace';
@@ -50,6 +52,7 @@ import { type DetectedWorkspace } from '@/types/workspace';
  */
 export class IndexingOrchestrator {
   private currentRepoPath = '';
+  private readonly metadataExtractor: MetadataExtractor;
 
   constructor(
     private readonly fileWalker: FileWalker,
@@ -65,7 +68,9 @@ export class IndexingOrchestrator {
     private readonly apiLinker?: APIImplementationLinker,
     private readonly apiEmbeddingGenerator?: APIEndpointEmbeddingGenerator,
     private readonly apiCallDetector?: CrossServiceAPICallDetector
-  ) {}
+  ) {
+    this.metadataExtractor = new MetadataExtractor();
+  }
 
   /**
    * Run complete indexing pipeline for a repository
@@ -186,13 +191,22 @@ export class IndexingOrchestrator {
 
     // Stage 7: Persist to database
     this.progressTracker.setStage(IndexingStage.Persisting);
-    await this.persistFileData(file, summary, summaryEmbedding, chunkingResult.chunks, chunkEmbeddings, symbols);
+    await this.persistFileData(
+      file,
+      parseResult,
+      summary,
+      summaryEmbedding,
+      chunkingResult.chunks,
+      chunkEmbeddings,
+      symbols
+    );
   };
 
   /**
    * Persist all file data to database
    *
    * @param file - File metadata
+   * @param parseResult - Parse result with imports/exports
    * @param summary - File summary
    * @param summaryEmbedding - Summary embedding
    * @param chunks - Code chunks
@@ -201,12 +215,17 @@ export class IndexingOrchestrator {
    */
   private persistFileData = async (
     file: DiscoveredFile,
+    parseResult: ParseResult,
     summary: FileSummary,
     summaryEmbedding: number[],
     chunks: CodeChunkInput[],
     embeddings: ChunkEmbedding[],
     symbols: ExtractedSymbol[]
   ): Promise<void> => {
+    // Convert imports to structured format with line numbers
+    const structuredImports =
+      parseResult.imports.length > 0 ? this.metadataExtractor.convertImportsToStructuredFormat(parseResult) : null;
+
     // Insert file metadata
     const codeFile: Omit<CodeFile, 'id' | 'indexed_at'> = {
       repo_path: this.currentRepoPath,
@@ -215,8 +234,8 @@ export class IndexingOrchestrator {
       summary_embedding: summaryEmbedding,
       language: file.language,
       total_lines: file.line_count,
-      imports: [], // Extract from parseResult if needed
-      exports: [], // Extract from parseResult if needed
+      imports: structuredImports,
+      exports: [], // Extract from parseResult if needed (future enhancement)
       file_hash: file.file_hash,
       last_modified: file.modified_time,
       repo_id: file.repo_id ?? null,
