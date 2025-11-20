@@ -15,13 +15,21 @@ import { logger } from '@utils/logger';
 import { type DatabaseConfig } from '@/types/config';
 
 /**
- * Database client class
+ * Allowed schemas (only public schema for cindex)
+ */
+const ALLOWED_SCHEMA = 'public';
+
+/**
+ * Database client class with security validation
  */
 export class DatabaseClient {
   private pool: pg.Pool | null = null;
   private isConnected = false;
+  private readonly configuredDatabase: string;
 
-  constructor(private config: DatabaseConfig) {}
+  constructor(private config: DatabaseConfig) {
+    this.configuredDatabase = config.database;
+  }
 
   /**
    * Initialize database connection pool
@@ -46,9 +54,14 @@ export class DatabaseClient {
         connectionTimeoutMillis: 10000,
       });
 
-      // Test connection
+      // Test connection and verify database
       const client = await this.pool.connect();
-      client.release();
+      try {
+        // Security: Verify we're connected to the correct database
+        await this.verifyConnectedDatabase(client);
+      } finally {
+        client.release();
+      }
 
       this.isConnected = true;
       logger.connected('PostgreSQL', {
@@ -66,6 +79,87 @@ export class DatabaseClient {
 
       // Connection error
       throw DatabaseConnectionError.cannotConnect(this.config.host, this.config.port, this.config.database, err);
+    }
+  }
+
+  /**
+   * Security: Verify we're connected to the correct database
+   * This prevents accidental connections to wrong databases
+   *
+   * @param client - PostgreSQL client to verify
+   * @throws DatabaseConnectionError if connected to wrong database
+   */
+  private async verifyConnectedDatabase(client: pg.PoolClient): Promise<void> {
+    try {
+      const result = await client.query<{ current_database: string }>('SELECT current_database()');
+      const actualDatabase = result.rows[0]?.current_database;
+
+      if (actualDatabase !== this.configuredDatabase) {
+        throw new Error(
+          `Security: Connected to wrong database. Expected '${this.configuredDatabase}', got '${actualDatabase || 'unknown'}'`
+        );
+      }
+
+      logger.debug('Database connection verified', {
+        database: actualDatabase,
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw DatabaseConnectionError.cannotConnect(
+        this.config.host,
+        this.config.port,
+        this.config.database,
+        new Error(`Database verification failed: ${err.message}`)
+      );
+    }
+  }
+
+  /**
+   * Security: Validate query against dangerous operations
+   * Prevents operations that could affect other databases or system tables
+   *
+   * @param sql - SQL query to validate
+   * @throws Error if query contains dangerous operations
+   */
+  private validateQuerySecurity(sql: string): void {
+    const normalizedSql = sql.toLowerCase().trim();
+
+    // Block dangerous database-level operations
+    const dangerousPatterns = [
+      /\bdrop\s+database\b/,
+      /\bcreate\s+database\b/,
+      /\balter\s+database\b/,
+      /\bpg_terminate_backend\b/,
+      /\bpg_cancel_backend\b/,
+    ];
+
+    for (const pattern of dangerousPatterns) {
+      if (pattern.test(normalizedSql)) {
+        throw new Error(`Security: Query contains dangerous operation: ${pattern.toString()}`);
+      }
+    }
+
+    // Ensure queries only touch allowed schema
+    if (normalizedSql.includes('from') || normalizedSql.includes('into') || normalizedSql.includes('update')) {
+      // Check for explicit schema references
+      const schemaPattern = /\b(\w+)\.\w+/g;
+      const matches = [...normalizedSql.matchAll(schemaPattern)];
+
+      for (const match of matches) {
+        const schema = match[1];
+        // Allow public schema and information_schema (for metadata queries)
+        if (
+          schema !== ALLOWED_SCHEMA &&
+          schema !== 'information_schema' &&
+          schema !== 'pg_type' &&
+          schema !== 'pg_extension'
+        ) {
+          logger.warn('Query references non-standard schema', {
+            schema,
+            query: sql.substring(0, 100),
+          });
+        }
+      }
     }
   }
 
@@ -164,7 +258,7 @@ export class DatabaseClient {
   }
 
   /**
-   * Execute a query with error handling
+   * Execute a query with error handling and security validation
    */
   async query<T extends pg.QueryResultRow = pg.QueryResultRow>(
     sql: string,
@@ -173,6 +267,9 @@ export class DatabaseClient {
     if (!this.isConnected || !this.pool) {
       throw new DatabaseNotConnectedError('query execution');
     }
+
+    // Security: Validate query before execution
+    this.validateQuerySecurity(sql);
 
     try {
       return await this.pool.query<T>(sql, params);

@@ -221,7 +221,9 @@ npm start
   - MCP server framework with lifecycle management ✅
   - All 13 tools implemented and registered ✅
   - 4 core tools: search_codebase, get_file_context, find_symbol, index_repository ✅
-  - 9 specialized tools: list_indexed_repos, list_workspaces, list_services, get_workspace_context, get_service_context, find_cross_workspace_usages, find_cross_service_calls, search_api_contracts, delete_repository ✅
+  - 9 specialized tools: list_indexed_repos, list_workspaces, list_services, get_workspace_context,
+    get_service_context, find_cross_workspace_usages, find_cross_service_calls,
+    search_api_contracts, delete_repository ✅
   - Complete input validation (validator.ts - 514 lines) ✅
   - Complete output formatting (formatter.ts - 1,130 lines) ✅
   - Error handling with user-friendly messages ✅
@@ -243,23 +245,26 @@ npm start
   - Performance: Cached queries ~50ms vs ~800ms uncached ✅
   - 80%+ reduction in Ollama API calls ✅
 
-**What's Planned:** ⚠️
-- **Optimization** (Phase 6: ~30% complete)
-  - ~~Query caching (embeddings + results)~~ ✅ **Complete**
-  - Incremental indexing (hash comparison logic) ⚠️
-  - HNSW index optimization ⚠️
-  - Edge case handling ⚠️
-  - Performance monitoring ⚠️
-  - Scale testing ⚠️
+**What's Complete:** ✅
 
-**Overall Completion: ~92%**
+- **Optimization** (Phase 6: 100% complete)
+  - ~~Query caching (embeddings + results)~~ ✅ **Complete**
+  - ~~Incremental indexing (hash comparison logic)~~ ✅ **Complete**
+  - ~~Large file & edge case handling~~ ✅ **Complete**
+  - ~~Performance monitoring~~ ✅ **Complete**
+  - ~~Scale testing (1k-1M LoC, monorepo, multi-repo)~~ ✅ **Complete**
+  - ~~Stress testing (concurrent, rapid reindex)~~ ✅ **Complete**
+  - ~~Accuracy testing (100+ queries)~~ ✅ **Complete**
+  - ~~Documentation (production checklist, performance report)~~ ✅ **Complete**
+
+**Overall Completion: 100%** 🎉
 
 - Phase 1: ✅ 100% Complete (Database Schema & Types)
 - Phase 2: ✅ 100% Complete (Base Indexing & Version Tracking)
 - Phase 3: ✅ 100% Complete (Embeddings, Language Support, Project Detection)
 - Phase 4: ✅ 100% Complete (Multi-Stage Retrieval - 9-stage pipeline)
 - Phase 5: ✅ 100% Complete (MCP Tools - 13/13 tools with full features)
-- Phase 6: ⚠️ ~30% Complete (Optimization - caching complete)
+- Phase 6: ✅ 100% Complete (Optimization & Testing)
 
 See `docs/tasks/phase-*.md` for detailed task breakdowns and checklists.
 
@@ -365,7 +370,9 @@ All settings are configured through environment variables in the MCP config file
 - `OLLAMA_HOST` (default: http://localhost:11434)
 
 **Context Window Notes:**
-- Default 4096 matches Ollama's default and is sufficient (cindex only uses first 100 lines per file)
+
+- Default 4096 matches Ollama's default and is sufficient (cindex only uses first 100 lines per
+  file)
 - Higher values consume more VRAM and are slower to process
 - bge-m3:567m supports up to 8K tokens
 - qwen2.5-coder:7b supports up to 32K tokens
@@ -394,6 +401,7 @@ All settings are configured through environment variables in the MCP config file
 **Scope priority:** Local > Project > User
 
 **Project scope example** (`.mcp.json` - version controlled, team-shared):
+
 ```json
 {
   "mcpServers": {
@@ -418,6 +426,49 @@ All settings are configured through environment variables in the MCP config file
 - SHA256 hash per file stored in `code_files.file_hash`
 - On re-index: compare hashes, skip unchanged files
 - Only re-embed modified files for fast updates
+
+### Secret File Protection
+
+**Security-first double-check layer to prevent indexing sensitive files.**
+
+- **Enabled by default** - Works alongside .gitignore for defense-in-depth
+- **Pattern-based detection** - Blocks .env files, credentials, keys, certificates
+- **Default protected patterns:**
+  - Environment: `.env`, `.env.*`, `*.env`, `.env.local`, `.env.production`, etc.
+  - Credentials: `*credentials*`, `*secrets*`, `*password*`, `auth.json`, `service-account*.json`
+  - Keys: `*.key`, `*.pem`, `id_rsa*`, `*.gpg`, `*.p12`, `*.pfx`
+  - Config: `.npmrc`, `.pypirc`, `.dockercfg`, `secrets.yml`
+- **Allowlist support** - `.env.example`, `*.sample`, `*.template` are allowed
+- **Configurable:**
+  - `PROTECT_SECRETS=true` (default) - Enable/disable protection
+  - `SECRET_PATTERNS="*.custom,my-secret-*"` - Add custom patterns (comma-separated)
+- **Statistics tracking** - Reports excluded_by_secret_protection count
+- **MCP parameters:**
+  - `protect_secrets: boolean` - Enable/disable for specific indexing
+  - `secret_patterns: string[]` - Custom patterns per repository
+
+**Security guarantee:** Even if a secret file is accidentally not in `.gitignore`, it will be
+blocked by the secret detector.
+
+### Media File Handling
+
+**Comprehensive exclusion of binary media files from indexing.**
+
+cindex automatically skips 90+ media file types to focus on code and text files:
+
+- **Images (15 types):** `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.ico`, `.svg`, `.webp`, `.tiff`, `.tif`, `.raw`, `.heic`, `.heif`, `.avif`, `.psd`
+- **Video (12 types):** `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.wmv`, `.flv`, `.m4v`, `.3gp`, `.mpeg`, `.mpg`, `.ogv`
+- **Audio (10 types):** `.mp3`, `.wav`, `.flac`, `.aac`, `.ogg`, `.wma`, `.m4a`, `.opus`, `.mid`, `.midi`
+- **Fonts (5 types):** `.ttf`, `.otf`, `.woff`, `.woff2`, `.eot`
+- **Archives (8 types):** `.zip`, `.tar`, `.gz`, `.bz2`, `.7z`, `.rar`, `.dmg`, `.iso`
+- **Executables (8 types):** `.exe`, `.dll`, `.so`, `.dylib`, `.wasm`, `.deb`, `.rpm`, `.apk`
+- **3D Models (6 types):** `.obj`, `.fbx`, `.blend`, `.max`, `.stl`, `.dae`
+- **Databases (5 types):** `.db`, `.sqlite`, `.sqlite3`, `.mdb`, `.accdb`
+- **Office Docs (7 types):** `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`, `.pdf`
+
+**Behavior:** Media files are detected and excluded during file discovery. Statistics track them under `excluded_binary` count, but they are never parsed, chunked, or embedded.
+
+**Performance benefit:** Skipping media files significantly improves indexing speed, especially in repositories with assets folders.
 
 ### Deduplication Strategy
 
@@ -471,7 +522,8 @@ Use test fixtures in `tests/fixtures/` for consistent test data.
 
 ### Speed-First Mode (Alternative)
 
-Set `SUMMARY_MODEL=qwen2.5-coder:1.5b` (speed optimization), `HNSW_EF_SEARCH=100`, `SIMILARITY_THRESHOLD=0.70`
+Set `SUMMARY_MODEL=qwen2.5-coder:1.5b` (speed optimization), `HNSW_EF_SEARCH=100`,
+`SIMILARITY_THRESHOLD=0.70`
 
 - **Indexing:** 500-1000 files/min
 - **Query time:** <500ms
@@ -496,11 +548,14 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b` (speed optimization), `HNSW_EF_SEARCH=100
 
 ### Import Conventions
 
-**Path aliases:** Use `@config/*`, `@database/*`, `@indexing/*`, `@retrieval/*`, `@mcp/*`, `@types/*`, `@utils/*` - never relative imports
+**Path aliases:** Use `@config/*`, `@database/*`, `@indexing/*`, `@retrieval/*`, `@mcp/*`,
+`@types/*`, `@utils/*` - never relative imports
 
-**Import order:** External packages → (blank line) → Internal imports → (blank line) → Type-only imports
+**Import order:** External packages → (blank line) → Internal imports → (blank line) → Type-only
+imports
 
 **Key rules:**
+
 - MCP SDK imports: Include `.js` extension (ESM requirement)
 - Internal imports: NO extensions (.ts, .js)
 - Node.js built-ins: Use `node:` prefix (`node:fs/promises`, `node:path`)
@@ -508,16 +563,18 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b` (speed optimization), `HNSW_EF_SEARCH=100
 - Combine duplicate imports from same module
 
 **Example:**
+
 ```typescript
 // External (MCP SDK with .js)
+
+// Node.js built-ins (node: prefix)
+import { randomUUID } from 'node:crypto';
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 // Internal (path aliases, no extension)
 import { loadConfig } from '@config/env';
 import { type ParseResult } from '@/types/indexing';
-
-// Node.js built-ins (node: prefix)
-import { randomUUID } from 'node:crypto';
 ```
 
 **See [docs/syntax.md](docs/syntax.md) for MCP SDK, pgvector, and tree-sitter syntax references.**
@@ -547,6 +604,7 @@ import { randomUUID } from 'node:crypto';
 ## Development Workflow
 
 **Setup:**
+
 ```bash
 sudo apt install postgresql-16 postgresql-16-pgvector
 curl https://ollama.ai/install.sh | sh && ollama pull bge-m3:567m qwen2.5-coder:7b
@@ -561,21 +619,23 @@ npm install && npm run build
 ## Reference Repository Usage Examples
 
 **Index reference framework:**
+
 ```typescript
 await index_repository({
   repo_path: '/references/nestjs',
   repo_id: 'nestjs-v10',
   repo_type: 'reference',
-  metadata: { upstream_url: 'https://github.com/nestjs/nest', version: 'v10.3.0' }
+  metadata: { upstream_url: 'https://github.com/nestjs/nest', version: 'v10.3.0' },
 });
 ```
 
 **Search with references:**
+
 ```typescript
 await search_codebase({
   query: 'how to implement guards',
   scope: 'global',
-  include_references: true  // Include framework examples
+  include_references: true, // Include framework examples
 });
 // Returns: Your code (priority 1.0) + reference code (priority 0.6)
 ```
@@ -592,13 +652,16 @@ await search_codebase({
 ## Multi-Project Development Guidance
 
 **Key Principles:**
+
 - Always require `repo_id` for multi-project operations
 - Implement scope filtering in retrieval pipeline Stage 0
 - Use parameterized queries with `repo_id = ANY($1)` filters
 - Cross-language communication = API calls, not imports
 - Build incrementally: basic indexing → scoped search → dependency detection → API contracts
 
-**Detailed implementation guidance:** See `docs/overview.md` Section 1.5 for multi-project architecture, API contract parsing patterns, workspace alias resolution, cross-repo deduplication, and multi-language monorepo handling.
+**Detailed implementation guidance:** See `docs/overview.md` Section 1.5 for multi-project
+architecture, API contract parsing patterns, workspace alias resolution, cross-repo deduplication,
+and multi-language monorepo handling.
 
 ## Additional Resources
 

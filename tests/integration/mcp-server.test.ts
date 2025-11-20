@@ -88,6 +88,7 @@ describe('MCP Server Integration', () => {
     const progressTracker = new ProgressTracker();
 
     return new IndexingOrchestrator(
+      db, // Add database client for incremental indexing
       fileWalker,
       parser,
       chunker,

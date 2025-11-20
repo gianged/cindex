@@ -111,6 +111,7 @@ const createOrchestrator = (repoPath: string, options: IndexingOptions): Indexin
 
   // Create orchestrator (API parsing components optional for now)
   return new IndexingOrchestrator(
+    db, // Add database client for incremental indexing
     fileWalker,
     parser,
     chunker,

@@ -16,6 +16,7 @@ import {
   validateString,
   validateSummaryMethod,
 } from '@mcp/validator';
+import { clearAllCaches } from '@utils/cache';
 import { logger } from '@utils/logger';
 import { type RepositoryType } from '@/types/database';
 import { type IndexingOptions } from '@/types/indexing';
@@ -31,6 +32,8 @@ export interface IndexRepositoryInput {
   include_markdown?: boolean; // Default: false - Index markdown files
   respect_gitignore?: boolean; // Default: true - Respect .gitignore
   max_file_size?: number; // Default: 5000 lines - Max file size in lines
+  protect_secrets?: boolean; // Default: true - Detect and exclude secret files (.env, credentials, keys)
+  secret_patterns?: string[]; // Custom patterns for secret detection (glob-style)
   summary_method?: 'llm' | 'rule-based'; // Default: llm - Summary generation method
 
   // Repository configuration
@@ -93,7 +96,7 @@ export interface IndexRepositoryOutput {
 /**
  * Progress callback for MCP notifications
  *
- * Implementation Status: ✅ COMPLETE
+ * Implementation Status: COMPLETE
  *
  * Uses MCP SDK's `sendLoggingMessage()` method to send structured progress
  * updates to the MCP client during long-running indexing operations (10-30+ minutes).
@@ -156,6 +159,8 @@ export const indexRepositoryTool = async (
   const includeMarkdown = validateBoolean('include_markdown', input.include_markdown, false) ?? false;
   const respectGitignore = validateBoolean('respect_gitignore', input.respect_gitignore, false) ?? true;
   const maxFileSize = validateMaxFileSize(input.max_file_size, false) ?? 5000;
+  const protectSecrets = validateBoolean('protect_secrets', input.protect_secrets, false) ?? true;
+  const secretPatterns = validateArray('secret_patterns', input.secret_patterns, false) as string[] | undefined;
   const summaryMethod = validateSummaryMethod(input.summary_method, false) ?? 'llm';
 
   // Validate repository configuration
@@ -204,6 +209,8 @@ export const indexRepositoryTool = async (
     includeMarkdown,
     respectGitignore,
     maxFileSize,
+    protectSecrets,
+    secretPatterns: secretPatterns ?? [],
     summaryMethod,
 
     // Repository configuration
@@ -268,6 +275,11 @@ export const indexRepositoryTool = async (
     symbols_extracted: stats.symbols_extracted,
     indexing_time_ms: stats.indexing_time_ms,
   });
+
+  // Clear all caches after successful indexing
+  // This ensures search results, query embeddings, and API endpoints are refreshed
+  clearAllCaches();
+  logger.info('Caches cleared after successful indexing');
 
   // Transform stats for output
   const transformedStats: IndexingStats = {

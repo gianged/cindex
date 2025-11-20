@@ -115,6 +115,8 @@ export interface IndexingDefaults {
   respect_gitignore: boolean; // Default: true
   include_markdown: boolean; // Default: false
   max_file_size: number; // Default: 5000 lines
+  protect_secrets: boolean; // Default: true
+  secret_patterns: string[]; // Default: [] (use built-in patterns)
 
   // Language detection
   languages: string[]; // Default: [] (all)
@@ -210,6 +212,8 @@ export const ENV_VARS = {
   // Indexing
   MAX_FILE_SIZE: 'MAX_FILE_SIZE',
   INCLUDE_MARKDOWN: 'INCLUDE_MARKDOWN',
+  PROTECT_SECRETS: 'PROTECT_SECRETS',
+  SECRET_PATTERNS: 'SECRET_PATTERNS',
 
   // Feature flags
   ENABLE_WORKSPACE_DETECTION: 'ENABLE_WORKSPACE_DETECTION',
@@ -275,6 +279,8 @@ export const DEFAULT_CONFIG: CindexConfig = {
     respect_gitignore: true,
     include_markdown: false,
     max_file_size: 5000,
+    protect_secrets: true,
+    secret_patterns: [],
     languages: [],
     detect_workspaces: true,
     resolve_workspace_aliases: true,

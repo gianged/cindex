@@ -9,6 +9,7 @@
  */
 
 import { type DatabaseClient } from '@database/client';
+import { apiEndpointCache, generateCacheKey } from '@utils/cache';
 import { logger } from '@utils/logger';
 import { type APIEndpoint } from '@/types/database';
 import {
@@ -137,6 +138,28 @@ const queryAPIEndpointsWithSimilarity = async (
   const apiSimilarityThreshold = options.api_similarity_threshold ?? 0.75;
   const maxApiEndpoints = options.max_api_endpoints ?? 50;
 
+  // Check API endpoint cache
+  const cacheKey = generateCacheKey({
+    serviceIds: Array.from(serviceIds).sort(),
+    queryEmbedding: queryEmbedding.embedding.slice(0, 10), // Use first 10 dimensions for cache key
+    apiTypes,
+    includeDeprecatedApis,
+    apiSimilarityThreshold,
+    maxApiEndpoints,
+  });
+
+  const cachedEndpoints = apiEndpointCache.get(cacheKey) as APIEndpointMatch[] | undefined;
+  if (cachedEndpoints) {
+    const cacheStats = apiEndpointCache.getStats();
+    logger.debug('API endpoints retrieved from cache', {
+      servicesQueried: serviceIds.size,
+      endpointsFound: cachedEndpoints.length,
+      cacheSize: cacheStats.size,
+      hitRate: (cacheStats.hitRate * 100).toFixed(1) + '%',
+    });
+    return cachedEndpoints;
+  }
+
   const serviceIdArray = Array.from(serviceIds);
 
   // Build query with optional filters
@@ -220,6 +243,14 @@ const queryAPIEndpointsWithSimilarity = async (
         : 0,
     apiTypes: apiTypes ?? 'all',
     includeDeprecated: includeDeprecatedApis,
+  });
+
+  // Cache the API endpoints
+  apiEndpointCache.set(cacheKey, endpoints);
+  const cacheStats = apiEndpointCache.getStats();
+  logger.debug('API endpoints cached', {
+    cacheSize: cacheStats.size,
+    hitRate: (cacheStats.hitRate * 100).toFixed(1) + '%',
   });
 
   return endpoints;

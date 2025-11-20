@@ -16,6 +16,7 @@ import * as path from 'node:path';
 
 import ignore, { type Ignore } from 'ignore';
 
+import { createSecretFileDetector, type SecretFileDetector } from '@indexing/secret-file-detector';
 import { FileSystemError } from '@utils/errors';
 import { logger } from '@utils/logger';
 import {
@@ -28,8 +29,10 @@ import {
 
 /**
  * Binary file extensions to exclude from indexing
+ * Media files are skipped - path saved but not parsed/embedded
  */
 const BINARY_EXTENSIONS = new Set([
+  // Images
   '.png',
   '.jpg',
   '.jpeg',
@@ -38,29 +41,90 @@ const BINARY_EXTENSIONS = new Set([
   '.ico',
   '.svg',
   '.webp',
-  '.pdf',
+  '.tiff',
+  '.tif',
+  '.raw',
+  '.heic',
+  '.heif',
+  '.avif',
+  '.psd',
+
+  // Video
+  '.mp4',
+  '.avi',
+  '.mov',
+  '.mkv',
+  '.webm',
+  '.wmv',
+  '.flv',
+  '.m4v',
+  '.3gp',
+  '.mpeg',
+  '.mpg',
+  '.ogv',
+
+  // Audio
+  '.mp3',
+  '.wav',
+  '.flac',
+  '.aac',
+  '.ogg',
+  '.wma',
+  '.m4a',
+  '.opus',
+  '.mid',
+  '.midi',
+
+  // Fonts
+  '.ttf',
+  '.otf',
+  '.woff',
+  '.woff2',
+  '.eot',
+
+  // Archives
   '.zip',
   '.tar',
   '.gz',
   '.bz2',
   '.7z',
   '.rar',
+  '.dmg',
+  '.iso',
+
+  // Executables & Libraries
   '.exe',
   '.dll',
   '.so',
   '.dylib',
   '.wasm',
-  '.mp3',
-  '.mp4',
-  '.avi',
-  '.mov',
-  '.wav',
-  '.flac',
-  '.ttf',
-  '.otf',
-  '.woff',
-  '.woff2',
-  '.eot',
+  '.deb',
+  '.rpm',
+  '.apk',
+
+  // 3D Models & CAD
+  '.obj',
+  '.fbx',
+  '.blend',
+  '.max',
+  '.stl',
+  '.dae',
+
+  // Databases
+  '.db',
+  '.sqlite',
+  '.sqlite3',
+  '.mdb',
+  '.accdb',
+
+  // Office Documents
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.pdf',
 ]);
 
 /**
@@ -135,11 +199,13 @@ const DEFAULT_OPTIONS: IndexingOptions = {
  */
 export class FileWalker {
   private ignoreFilter: Ignore | null = null;
+  private secretDetector: SecretFileDetector;
   private stats: FileDiscoveryStats = {
     total_files: 0,
     excluded_by_gitignore: 0,
     excluded_binary: 0,
     excluded_size: 0,
+    excluded_by_secret_protection: 0,
     files_by_language: {} as Record<Language, number>,
     total_lines: 0,
   };
@@ -149,6 +215,13 @@ export class FileWalker {
     options?: Partial<IndexingOptions>
   ) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
+
+    // Initialize secret file detector
+    this.secretDetector = createSecretFileDetector({
+      enabled: options?.protectSecrets ?? true,
+      customPatterns: options?.secretPatterns ?? [],
+      replaceDefaultPatterns: false,
+    });
   }
 
   private readonly options: IndexingOptions;
@@ -285,6 +358,17 @@ export class FileWalker {
     if (this.isGeneratedFile(basename)) {
       logger.debug('Skipping generated file', { path: relativePath });
       this.stats.excluded_binary++;
+      return null;
+    }
+
+    // Security: Exclude secret files (double-check beyond .gitignore)
+    if (this.secretDetector.isSecretFile(relativePath)) {
+      const matchedPattern = this.secretDetector.getMatchedPattern(relativePath);
+      logger.warn('Secret file detected and excluded', {
+        file: relativePath,
+        pattern: matchedPattern,
+      });
+      this.stats.excluded_by_secret_protection++;
       return null;
     }
 

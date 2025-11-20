@@ -26,10 +26,26 @@ import { expandImports } from '@retrieval/import-expander';
 import { processQuery } from '@retrieval/query-processor';
 import { determineSearchScope, type ScopeFilterConfig, type ScopeMode } from '@retrieval/scope-filter';
 import { resolveSymbols } from '@retrieval/symbol-resolver';
+import { generateCacheKey, searchResultCache } from '@utils/cache';
 import { logger } from '@utils/logger';
+import { PerformanceMonitor } from '@utils/performance';
 import { type OllamaClient } from '@utils/ollama';
 import { type CindexConfig } from '@/types/config';
 import { type SearchOptions, type SearchResult } from '@/types/retrieval';
+
+/**
+ * Global performance monitor for retrieval operations
+ */
+const retrievalPerformanceMonitor = new PerformanceMonitor({
+  enabled: true,
+  trackMemory: true,
+  logInterval: 10, // Log every 10 queries
+  alertThresholds: {
+    maxDurationMs: 2000, // 2 seconds (target <800ms)
+    maxMemoryMB: 512, // 512MB
+    minThroughput: 0.5, // 0.5 queries/sec
+  },
+});
 
 /**
  * Search codebase with semantic RAG retrieval
@@ -60,6 +76,7 @@ export const searchCodebase = async (
   options: SearchOptions = {}
 ): Promise<SearchResult> => {
   const startTime = Date.now();
+  const searchMetricId = retrievalPerformanceMonitor.startStage('search', query.substring(0, 50));
 
   // Extract options with defaults
   const maxFiles = options.max_files ?? 15;
@@ -68,6 +85,21 @@ export const searchCodebase = async (
   const importDepth = options.import_depth ?? config.performance.import_depth;
   const dedupThreshold = options.dedup_threshold ?? config.performance.dedup_threshold;
   const similarityThreshold = options.similarity_threshold ?? config.performance.similarity_threshold;
+
+  // Check search result cache
+  const cacheKey = generateCacheKey({ query, options });
+  const cachedResult = searchResultCache.get(cacheKey) as SearchResult | undefined;
+  if (cachedResult) {
+    retrievalPerformanceMonitor.endStage(searchMetricId);
+    const cacheStats = searchResultCache.getStats();
+    logger.info('Search result retrieved from cache', {
+      query: query.substring(0, 100),
+      cacheSize: cacheStats.size,
+      hitRate: (cacheStats.hitRate * 100).toFixed(1) + '%',
+      cachedQueryTime: cachedResult.metadata.query_time_ms,
+    });
+    return cachedResult;
+  }
 
   logger.info('Starting codebase search', {
     query: query.substring(0, 100), // Log first 100 chars
@@ -315,6 +347,17 @@ export const searchCodebase = async (
     warnings: result.warnings.length,
     queryTime: totalQueryTime,
   });
+
+  // Cache the search result
+  searchResultCache.set(cacheKey, result);
+  const cacheStats = searchResultCache.getStats();
+  logger.debug('Search result cached', {
+    cacheSize: cacheStats.size,
+    hitRate: (cacheStats.hitRate * 100).toFixed(1) + '%',
+  });
+
+  // End performance tracking
+  retrievalPerformanceMonitor.endStage(searchMetricId);
 
   return result;
 };

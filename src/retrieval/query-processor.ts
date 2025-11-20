@@ -5,82 +5,11 @@
  * Converts user queries into 1024-dimensional vectors for semantic search.
  */
 
+import { queryEmbeddingCache } from '@utils/cache';
 import { logger } from '@utils/logger';
 import { type OllamaClient } from '@utils/ollama';
 import { type CindexConfig } from '@/types/config';
 import { type QueryEmbedding, type QueryType } from '@/types/retrieval';
-
-/**
- * Cache entry for query embeddings
- */
-interface CacheEntry {
-  embedding: number[];
-  timestamp: number;
-}
-
-/**
- * Query embedding cache
- * Uses Map with TTL-based expiration (1 hour)
- */
-class QueryEmbeddingCache {
-  private cache = new Map<string, CacheEntry>();
-  private readonly ttlMs = 60 * 60 * 1000; // 1 hour
-
-  /**
-   * Get cached embedding if exists and not expired
-   */
-  get(query: string): number[] | null {
-    const entry = this.cache.get(query);
-    if (!entry) {
-      return null;
-    }
-
-    const isExpired = Date.now() - entry.timestamp > this.ttlMs;
-    if (isExpired) {
-      this.cache.delete(query);
-      return null;
-    }
-
-    return entry.embedding;
-  }
-
-  /**
-   * Store embedding in cache
-   */
-  set(query: string, embedding: number[]): void {
-    this.cache.set(query, {
-      embedding,
-      timestamp: Date.now(),
-    });
-  }
-
-  /**
-   * Clear expired entries from cache
-   */
-  cleanExpired(): void {
-    const now = Date.now();
-    for (const [query, entry] of this.cache.entries()) {
-      if (now - entry.timestamp > this.ttlMs) {
-        this.cache.delete(query);
-      }
-    }
-  }
-
-  /**
-   * Get cache statistics
-   */
-  getStats(): { size: number; ttl_ms: number } {
-    return {
-      size: this.cache.size,
-      ttl_ms: this.ttlMs,
-    };
-  }
-}
-
-/**
- * Global query embedding cache instance
- */
-const queryCache = new QueryEmbeddingCache();
 
 /**
  * Detect query type based on content patterns
@@ -216,11 +145,13 @@ export const processQuery = async (
   logger.debug('Query preprocessed', { original: query, processed: processedQuery });
 
   // Step 3: Check cache
-  const cachedEmbedding = queryCache.get(processedQuery);
+  const cachedEmbedding = queryEmbeddingCache.get(processedQuery);
   if (cachedEmbedding) {
+    const cacheStats = queryEmbeddingCache.getStats();
     logger.debug('Query embedding retrieved from cache', {
       query: processedQuery,
-      cacheStats: queryCache.getStats(),
+      cacheSize: cacheStats.size,
+      hitRate: (cacheStats.hitRate * 100).toFixed(1) + '%',
     });
 
     return {
@@ -246,10 +177,12 @@ export const processQuery = async (
   );
 
   // Step 5: Cache the embedding
-  queryCache.set(processedQuery, embedding);
+  queryEmbeddingCache.set(processedQuery, embedding);
+  const cacheStats = queryEmbeddingCache.getStats();
   logger.debug('Query embedding cached', {
     query: processedQuery,
-    cacheStats: queryCache.getStats(),
+    cacheSize: cacheStats.size,
+    hitRate: (cacheStats.hitRate * 100).toFixed(1) + '%',
   });
 
   const generationTime = Date.now() - startTime;
@@ -267,20 +200,4 @@ export const processQuery = async (
     embedding,
     generation_time_ms: generationTime,
   };
-};
-
-/**
- * Clear expired cache entries
- * Should be called periodically (e.g., every hour) to prevent memory leaks
- */
-export const cleanQueryCache = (): void => {
-  queryCache.cleanExpired();
-  logger.debug('Query cache cleaned', queryCache.getStats());
-};
-
-/**
- * Get query cache statistics
- */
-export const getQueryCacheStats = (): { size: number; ttl_ms: number } => {
-  return queryCache.getStats();
 };

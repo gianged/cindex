@@ -158,6 +158,8 @@ export const loadConfig = (): CindexConfig => {
   // Load indexing configuration
   const maxFileSize = parseEnvInt(ENV_VARS.MAX_FILE_SIZE, DEFAULT_CONFIG.indexing.max_file_size, 100, 100000);
   const includeMarkdown = parseEnvBool(ENV_VARS.INCLUDE_MARKDOWN, DEFAULT_CONFIG.indexing.include_markdown);
+  const protectSecrets = parseEnvBool(ENV_VARS.PROTECT_SECRETS, DEFAULT_CONFIG.indexing.protect_secrets);
+  const secretPatterns = getEnv(ENV_VARS.SECRET_PATTERNS)?.split(',').map((p) => p.trim()).filter(Boolean) ?? DEFAULT_CONFIG.indexing.secret_patterns;
 
   // Load feature flags
   const enableWorkspaceDetection = parseEnvBool(
@@ -229,6 +231,8 @@ export const loadConfig = (): CindexConfig => {
       respect_gitignore: DEFAULT_CONFIG.indexing.respect_gitignore,
       include_markdown: includeMarkdown,
       max_file_size: maxFileSize,
+      protect_secrets: protectSecrets,
+      secret_patterns: secretPatterns,
       languages: DEFAULT_CONFIG.indexing.languages,
       detect_workspaces: DEFAULT_CONFIG.indexing.detect_workspaces,
       resolve_workspace_aliases: DEFAULT_CONFIG.indexing.resolve_workspace_aliases,

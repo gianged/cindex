@@ -149,4 +149,60 @@ describe('Database Integration', () => {
       expect(result.rows.length).toBe(0);
     });
   });
+
+  describe('Security Validation', () => {
+    it('should verify connected to correct database on connect', async () => {
+      // This is implicitly tested by successful connection
+      // The verifyConnectedDatabase method is called in connect()
+      expect(db.connected).toBe(true);
+    });
+
+    it('should block DROP DATABASE queries', async () => {
+      await expect(db.query('DROP DATABASE some_other_db', [])).rejects.toThrow(
+        /Security: Query contains dangerous operation/
+      );
+    });
+
+    it('should block CREATE DATABASE queries', async () => {
+      await expect(db.query('CREATE DATABASE malicious_db', [])).rejects.toThrow(
+        /Security: Query contains dangerous operation/
+      );
+    });
+
+    it('should block ALTER DATABASE queries', async () => {
+      await expect(db.query('ALTER DATABASE postgres RENAME TO hacked', [])).rejects.toThrow(
+        /Security: Query contains dangerous operation/
+      );
+    });
+
+    it('should block pg_terminate_backend calls', async () => {
+      await expect(db.query('SELECT pg_terminate_backend(123)', [])).rejects.toThrow(
+        /Security: Query contains dangerous operation/
+      );
+    });
+
+    it('should block pg_cancel_backend calls', async () => {
+      await expect(db.query('SELECT pg_cancel_backend(123)', [])).rejects.toThrow(
+        /Security: Query contains dangerous operation/
+      );
+    });
+
+    it('should allow normal SELECT queries', async () => {
+      const result = await db.query('SELECT 1 as test', []);
+      expect(result.rows[0].test).toBe(1);
+    });
+
+    it('should allow queries on public schema tables', async () => {
+      const result = await db.query('SELECT COUNT(*) as count FROM code_files', []);
+      expect(result.rows.length).toBe(1);
+    });
+
+    it('should allow metadata queries on information_schema', async () => {
+      const result = await db.query<{ table_name: string }>(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' LIMIT 1`,
+        []
+      );
+      expect(result.rows.length).toBeGreaterThanOrEqual(0);
+    });
+  });
 });

@@ -387,6 +387,12 @@ export interface IndexingOptions {
   /** Maximum file size in lines (skip larger files) */
   maxFileSize?: number;
 
+  /** Enable secret file protection (detect .env, credentials, keys) */
+  protectSecrets?: boolean;
+
+  /** Custom patterns for secret file detection (glob-style) */
+  secretPatterns?: string[];
+
   /** Summary generation method */
   summaryMethod?: 'llm' | 'rule-based';
 
@@ -523,6 +529,9 @@ export interface FileDiscoveryStats {
 
   /** Files skipped due to size */
   excluded_size: number;
+
+  /** Files excluded by secret file protection */
+  excluded_by_secret_protection: number;
 
   /** Files by language */
   files_by_language: Record<Language, number>;

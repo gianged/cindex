@@ -8,6 +8,7 @@
 
 import * as fs from 'node:fs/promises';
 
+import { type DatabaseClient } from '@database/client';
 import { type DatabaseWriter } from '@database/writer';
 import { type CrossServiceAPICallDetector } from '@indexing/api-call-detector';
 import { type APIEndpointEmbeddingGenerator } from '@indexing/api-embeddings';
@@ -16,11 +17,14 @@ import { type CodeChunker } from '@indexing/chunker';
 import { type EmbeddingGenerator } from '@indexing/embeddings';
 import { type FileWalker } from '@indexing/file-walker';
 import { type APIImplementationLinker } from '@indexing/implementation-linker';
+import { detectFileChanges, processIncrementalChanges } from '@indexing/incremental';
+import { determineLargeFileStrategy } from '@indexing/large-file-handler';
 import { MetadataExtractor } from '@indexing/metadata';
 import { type CodeParser } from '@indexing/parser';
 import { type FileSummaryGenerator } from '@indexing/summary';
 import { type SymbolExtractor } from '@indexing/symbols';
 import { logger } from '@utils/logger';
+import { PerformanceMonitor } from '@utils/performance';
 import { type ProgressTracker } from '@utils/progress';
 import { type ImplementationSearchHints } from '@/types/api-parsing';
 import {
@@ -53,8 +57,10 @@ import { type DetectedWorkspace } from '@/types/workspace';
 export class IndexingOrchestrator {
   private currentRepoPath = '';
   private readonly metadataExtractor: MetadataExtractor;
+  private readonly performanceMonitor: PerformanceMonitor;
 
   constructor(
+    private readonly db: DatabaseClient,
     private readonly fileWalker: FileWalker,
     private readonly parser: CodeParser,
     private readonly chunker: CodeChunker,
@@ -70,6 +76,16 @@ export class IndexingOrchestrator {
     private readonly apiCallDetector?: CrossServiceAPICallDetector
   ) {
     this.metadataExtractor = new MetadataExtractor();
+    this.performanceMonitor = new PerformanceMonitor({
+      enabled: true,
+      trackMemory: true,
+      logInterval: 50, // Log every 50 files
+      alertThresholds: {
+        maxDurationMs: 30000, // 30 seconds per file
+        maxMemoryMB: 1024, // 1GB
+        minThroughput: 5, // 5 items/sec
+      },
+    });
   }
 
   /**
@@ -86,6 +102,9 @@ export class IndexingOrchestrator {
     // Store current repo path for use in persistence
     this.currentRepoPath = repoPath;
 
+    // Start performance monitoring
+    this.performanceMonitor.start();
+
     logger.info('Starting repository indexing', {
       repo: repoPath,
       options,
@@ -94,17 +113,87 @@ export class IndexingOrchestrator {
     try {
       // Stage 1: File Discovery
       this.progressTracker.setStage(IndexingStage.Discovering);
-      const files = await this.fileWalker.discoverFiles();
+      const discoveredFiles = await this.fileWalker.discoverFiles();
 
       logger.info('Files discovered', {
-        count: files.length,
+        count: discoveredFiles.length,
       });
 
+      // Stage 1.5: Incremental Indexing (if enabled)
+      let filesToProcess = discoveredFiles;
+      if (options.incremental) {
+        logger.info('Incremental indexing enabled, detecting changes');
+
+        const { changes, stats } = await detectFileChanges(this.db, repoPath, discoveredFiles);
+
+        // Process incremental changes (delete stale data)
+        filesToProcess = await processIncrementalChanges(this.db, changes);
+
+        logger.info('Incremental indexing prepared', {
+          total_discovered: stats.total_discovered,
+          new_files: stats.new_files,
+          modified_files: stats.modified_files,
+          unchanged_files: stats.unchanged_files,
+          deleted_files: stats.deleted_files,
+          skip_rate: stats.skip_rate.toFixed(1) + '%',
+          files_to_process: filesToProcess.length,
+        });
+      }
+
+      // Stage 1.6: File Validation & Filtering (large file, binary, generated, minified)
+      const validatedFiles: typeof filesToProcess = [];
+      let skippedBinary = 0;
+      let skippedGenerated = 0;
+      let skippedMinified = 0;
+      let skippedVeryLarge = 0;
+
+      for (const file of filesToProcess) {
+        const strategy = determineLargeFileStrategy(file);
+
+        if (!strategy.shouldIndex) {
+          // Skip files based on strategy
+          if (strategy.fileType === 'binary') skippedBinary++;
+          else if (strategy.fileType === 'generated') skippedGenerated++;
+          else if (strategy.fileType === 'minified') skippedMinified++;
+
+          logger.debug('Skipping file', {
+            file: file.relative_path,
+            reason: strategy.reason,
+            fileType: strategy.fileType,
+          });
+          continue;
+        }
+
+        if (strategy.useStructureOnly) {
+          // Very large files: structure-only indexing
+          // TODO: Implement structure-only indexing in future iteration
+          skippedVeryLarge++;
+          logger.debug('Skipping very large file (structure-only not yet implemented)', {
+            file: file.relative_path,
+            lines: file.line_count,
+          });
+          continue;
+        }
+
+        validatedFiles.push(file);
+      }
+
+      logger.info('File validation complete', {
+        total_files: filesToProcess.length,
+        validated_files: validatedFiles.length,
+        skipped_binary: skippedBinary,
+        skipped_generated: skippedGenerated,
+        skipped_minified: skippedMinified,
+        skipped_very_large: skippedVeryLarge,
+      });
+
+      filesToProcess = validatedFiles;
+
       // Initialize progress tracker
-      this.progressTracker.start(files.length);
+      this.progressTracker.start(filesToProcess.length);
 
       // Stage 2-7: Process each file through the pipeline
-      for (const file of files) {
+      for (const file of filesToProcess) {
         try {
           await this.processFile(file);
           this.progressTracker.incrementFiles();
@@ -128,6 +217,9 @@ export class IndexingOrchestrator {
       // Get final statistics
       const stats = this.progressTracker.getStats();
       stats.stage = IndexingStage.Complete;
+
+      // Log performance summary
+      this.performanceMonitor.logSummary();
 
       // Log final report
       this.progressTracker.logFinalReport();
@@ -156,7 +248,9 @@ export class IndexingOrchestrator {
 
     // Stage 2: Parse
     this.progressTracker.setStage(IndexingStage.Parsing);
+    const parseMetricId = this.performanceMonitor.startStage('parsing', file.relative_path);
     const parseResult = this.parser.parse(content, file.relative_path);
+    this.performanceMonitor.endStage(parseMetricId);
 
     if (!parseResult.success && !parseResult.used_fallback) {
       throw new Error(`Parsing failed: ${parseResult.error ?? 'unknown error'}`);
@@ -164,17 +258,22 @@ export class IndexingOrchestrator {
 
     // Stage 3: Chunk
     this.progressTracker.setStage(IndexingStage.Chunking);
+    const chunkMetricId = this.performanceMonitor.startStage('chunking', file.relative_path);
     const chunkingResult = this.chunker.createChunks(file, parseResult, content);
+    this.performanceMonitor.endStage(chunkMetricId, chunkingResult.chunks.length);
     this.progressTracker.incrementChunks(chunkingResult.chunks.length);
 
     // Stage 4: Generate file summary
     this.progressTracker.setStage(IndexingStage.Summarizing);
+    const summaryMetricId = this.performanceMonitor.startStage('summarizing', file.relative_path);
     const firstNLines = content.split('\n').slice(0, 100).join('\n');
     const summary = await this.summaryGenerator.generateSummary(file, firstNLines);
+    this.performanceMonitor.endStage(summaryMetricId);
     this.progressTracker.recordSummary(summary.summary_method);
 
     // Stage 5: Generate embeddings for chunks
     this.progressTracker.setStage(IndexingStage.Embedding);
+    const embeddingMetricId = this.performanceMonitor.startStage('embedding', file.relative_path);
     const chunkEmbeddings = await this.embeddingGenerator.generateBatch(chunkingResult.chunks);
     this.progressTracker.incrementEmbedded(chunkEmbeddings.filter((e) => e.embedding.length > 0).length);
 
@@ -183,14 +282,18 @@ export class IndexingOrchestrator {
       summary.summary_text,
       `file summary for ${file.relative_path}`
     );
+    this.performanceMonitor.endStage(embeddingMetricId, chunkingResult.chunks.length + 1);
 
     // Stage 6: Extract symbols
     this.progressTracker.setStage(IndexingStage.Symbols);
+    const symbolsMetricId = this.performanceMonitor.startStage('symbols', file.relative_path);
     const symbols = await this.symbolExtractor.extractSymbols(parseResult, file);
+    this.performanceMonitor.endStage(symbolsMetricId, symbols.length);
     this.progressTracker.incrementSymbols(symbols.length);
 
     // Stage 7: Persist to database
     this.progressTracker.setStage(IndexingStage.Persisting);
+    const persistMetricId = this.performanceMonitor.startStage('persistence', file.relative_path);
     await this.persistFileData(
       file,
       parseResult,
@@ -200,6 +303,7 @@ export class IndexingOrchestrator {
       chunkEmbeddings,
       symbols
     );
+    this.performanceMonitor.endStage(persistMetricId);
   };
 
   /**
@@ -793,6 +897,7 @@ export class IndexingOrchestrator {
 /**
  * Create indexing orchestrator instance
  *
+ * @param db - Database client for incremental indexing
  * @param fileWalker - File discovery service
  * @param parser - Code parser
  * @param chunker - Code chunker
@@ -804,6 +909,7 @@ export class IndexingOrchestrator {
  * @returns Initialized IndexingOrchestrator
  */
 export const createIndexingOrchestrator = (
+  db: DatabaseClient,
   fileWalker: FileWalker,
   parser: CodeParser,
   chunker: CodeChunker,
@@ -814,6 +920,7 @@ export const createIndexingOrchestrator = (
   progressTracker: ProgressTracker
 ): IndexingOrchestrator => {
   return new IndexingOrchestrator(
+    db,
     fileWalker,
     parser,
     chunker,
