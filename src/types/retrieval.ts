@@ -488,8 +488,11 @@ export interface SearchOptions {
   /** Deduplication threshold (Stage 6) */
   dedup_threshold?: number; // Default: 0.92
 
-  /** Similarity threshold (Stages 1-2) */
-  similarity_threshold?: number; // Default: 0.75
+  /** Similarity threshold (Stage 1: File-level retrieval) */
+  similarity_threshold?: number; // Default: 0.5
+
+  /** Chunk similarity threshold (Stage 2: Chunk-level retrieval) */
+  chunk_similarity_threshold?: number; // Default: uses similarity_threshold if not specified
 
   // ============================================================================
   // Multi-project filtering options (Stage 0)

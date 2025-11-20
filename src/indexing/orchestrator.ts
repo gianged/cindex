@@ -298,7 +298,7 @@ export class IndexingOrchestrator {
     // Stage 5: Generate embeddings for chunks
     this.progressTracker.setStage(IndexingStage.Embedding);
     const embeddingMetricId = this.performanceMonitor.startStage('embedding', file.relative_path);
-    const chunkEmbeddings = await this.embeddingGenerator.generateBatch(chunkingResult.chunks);
+    const chunkEmbeddings = await this.embeddingGenerator.generateBatch(chunkingResult.chunks, 5, summary.summary_text);
     this.progressTracker.incrementEmbedded(chunkEmbeddings.filter((e) => e.embedding.length > 0).length);
 
     // Generate embedding for file summary

@@ -92,7 +92,7 @@ export const retrieveChunks = async (
   // - Use ORDER BY embedding <=> query for index optimization
   const query = `
     SELECT
-      chunk_id,
+      id AS chunk_id,
       file_path,
       chunk_content,
       chunk_type,
@@ -124,7 +124,7 @@ export const retrieveChunks = async (
       // pgvector returns embedding as string "[1.2, 3.4, ...]"
       let embeddingArray: number[] | undefined;
       try {
-        embeddingArray = JSON.parse(row.embedding.replace(/^\[|\]$/g, '').replace(/\s+/g, ',')) as number[];
+        embeddingArray = JSON.parse(row.embedding) as number[];
       } catch {
         // If parsing fails, embedding will be undefined (deduplication will skip this chunk)
         logger.warn('Failed to parse embedding for chunk', { chunk_id: row.chunk_id });
@@ -258,7 +258,7 @@ export const retrieveChunksFiltered = async (
 
   const query = `
     SELECT
-      chunk_id,
+      id AS chunk_id,
       file_path,
       chunk_content,
       chunk_type,
@@ -284,7 +284,7 @@ export const retrieveChunksFiltered = async (
     const chunks: RelevantChunk[] = result.rows.map((row) => {
       let embeddingArray: number[] | undefined;
       try {
-        embeddingArray = JSON.parse(row.embedding.replace(/^\[|\]$/g, '').replace(/\s+/g, ',')) as number[];
+        embeddingArray = JSON.parse(row.embedding) as number[];
       } catch {
         logger.warn('Failed to parse embedding for chunk', { chunk_id: row.chunk_id });
       }

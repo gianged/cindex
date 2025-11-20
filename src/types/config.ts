@@ -92,8 +92,10 @@ export interface PerformanceConfig {
   hnsw_ef_search: number;
   /** HNSW index construction parameter (default: 200) - higher = better quality */
   hnsw_ef_construction: number;
-  /** Minimum similarity score for retrieval (default: 0.75) */
+  /** Minimum similarity score for file-level retrieval (default: 0.5, tuned for natural language queries) */
   similarity_threshold: number;
+  /** Minimum similarity score for chunk-level retrieval (default: 0.50, matches file-level threshold) */
+  chunk_similarity_threshold: number;
   /** Similarity threshold for deduplication (default: 0.92) */
   dedup_threshold: number;
   /** Maximum import chain depth (default: 3) */
@@ -255,6 +257,7 @@ export const ENV_VARS = {
   HNSW_EF_SEARCH: 'HNSW_EF_SEARCH',
   HNSW_EF_CONSTRUCTION: 'HNSW_EF_CONSTRUCTION',
   SIMILARITY_THRESHOLD: 'SIMILARITY_THRESHOLD',
+  CHUNK_SIMILARITY_THRESHOLD: 'CHUNK_SIMILARITY_THRESHOLD',
   DEDUP_THRESHOLD: 'DEDUP_THRESHOLD',
 
   // Depths
@@ -308,7 +311,8 @@ export const DEFAULT_CONFIG: CindexConfig = {
   performance: {
     hnsw_ef_search: 300,
     hnsw_ef_construction: 200,
-    similarity_threshold: 0.75,
+    similarity_threshold: 0.5,
+    chunk_similarity_threshold: 0.50,
     dedup_threshold: 0.92,
     import_depth: 3,
     workspace_depth: 2,

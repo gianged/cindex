@@ -188,6 +188,12 @@ export const loadConfig = (): CindexConfig => {
     0.0,
     1.0
   );
+  const chunkSimilarityThreshold = parseEnvFloat(
+    ENV_VARS.CHUNK_SIMILARITY_THRESHOLD,
+    DEFAULT_CONFIG.performance.chunk_similarity_threshold,
+    0.0,
+    1.0
+  );
   const dedupThreshold = parseEnvFloat(ENV_VARS.DEDUP_THRESHOLD, DEFAULT_CONFIG.performance.dedup_threshold, 0.0, 1.0);
   // Dependency traversal depth limits to prevent runaway expansion
   const importDepth = parseEnvInt(ENV_VARS.IMPORT_DEPTH, DEFAULT_CONFIG.performance.import_depth, 1, 10);
@@ -250,6 +256,7 @@ export const loadConfig = (): CindexConfig => {
       hnsw_ef_search: hnswEfSearch,
       hnsw_ef_construction: hnswEfConstruction,
       similarity_threshold: similarityThreshold,
+      chunk_similarity_threshold: chunkSimilarityThreshold,
       dedup_threshold: dedupThreshold,
       import_depth: importDepth,
       workspace_depth: workspaceDepth,
@@ -315,7 +322,7 @@ export const validateConfig = (config: CindexConfig): void => {
         similarity: config.performance.similarity_threshold,
         dedup: config.performance.dedup_threshold,
       },
-      'Typically: SIMILARITY_THRESHOLD=0.75, DEDUP_THRESHOLD=0.92'
+      'Typically: SIMILARITY_THRESHOLD=0.5 (natural language) or 0.7 (code search), DEDUP_THRESHOLD=0.92'
     );
   }
 

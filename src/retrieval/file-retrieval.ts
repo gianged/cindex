@@ -18,7 +18,7 @@ interface FileRetrievalRow {
   file_path: string;
   file_summary: string;
   language: string;
-  line_count: number;
+  total_lines: number;
   imports: string[];
   exports: string[];
   similarity: number;
@@ -122,7 +122,7 @@ export const retrieveFiles = async (
       file_path,
       file_summary,
       language,
-      line_count,
+      total_lines,
       COALESCE(imports, '{}') AS imports,
       COALESCE(exports, '{}') AS exports,
       1 - (summary_embedding <=> $1::vector) AS similarity,
@@ -143,7 +143,7 @@ export const retrieveFiles = async (
       file_path: row.file_path,
       file_summary: row.file_summary,
       language: row.language,
-      line_count: row.line_count,
+      line_count: row.total_lines,
       imports: row.imports,
       exports: row.exports,
       similarity: row.similarity,
@@ -215,7 +215,7 @@ export const retrieveFilesFiltered = async (
       file_path,
       file_summary,
       language,
-      line_count,
+      total_lines,
       COALESCE(imports, '{}') AS imports,
       COALESCE(exports, '{}') AS exports,
       1 - (summary_embedding <=> $1::vector) AS similarity,
@@ -239,7 +239,7 @@ export const retrieveFilesFiltered = async (
       file_path: row.file_path,
       file_summary: row.file_summary,
       language: row.language,
-      line_count: row.line_count,
+      line_count: row.total_lines,
       imports: row.imports,
       exports: row.exports,
       similarity: row.similarity,

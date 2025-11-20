@@ -93,6 +93,7 @@ export const searchCodebase = async (
   const importDepth = options.import_depth ?? config.performance.import_depth;
   const dedupThreshold = options.dedup_threshold ?? config.performance.dedup_threshold;
   const similarityThreshold = options.similarity_threshold ?? config.performance.similarity_threshold;
+  const chunkSimilarityThreshold = options.chunk_similarity_threshold ?? config.performance.chunk_similarity_threshold;
 
   // Check search result cache
   const cacheKey = generateCacheKey({ query, options });
@@ -225,7 +226,7 @@ export const searchCodebase = async (
     db,
     scopeFilter,
     maxSnippets * 4, // Retrieve 4x maxSnippets before dedup (expect ~75% dedup rate)
-    0.75 // Higher threshold for chunks
+    chunkSimilarityThreshold // Use configurable threshold (defaults to similarity_threshold)
   );
 
   logger.info('[5/9] Chunk retrieval complete', {

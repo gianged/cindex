@@ -13,6 +13,7 @@ import { AliasResolver } from '@indexing/alias-resolver';
 import { type WorkspaceConfig } from '@indexing/workspace-detector';
 import { logger } from '@utils/logger';
 import { type CindexConfig } from '@/types/config';
+import { type ImportsData, getImportPaths } from '@/types/database';
 import { type ImportChain, type RelevantFile } from '@/types/retrieval';
 
 /**
@@ -20,7 +21,7 @@ import { type ImportChain, type RelevantFile } from '@/types/retrieval';
  */
 interface FileImportRow {
   file_path: string;
-  imports: string[];
+  imports: ImportsData | null;
   exports: string[];
   file_summary: string;
   repo_id: string | null;
@@ -312,7 +313,8 @@ const expandImportsRecursive = async (
     });
 
     // Recursively expand imports
-    for (const importPath of fileData.imports) {
+    const importPaths = getImportPaths(fileData.imports);
+    for (const importPath of importPaths) {
       // Skip external imports
       if (!isInternalImport(importPath)) {
         logger.debug('Skipping external import', {
@@ -664,7 +666,8 @@ export const expandImportsBoundaryAware = async (
       });
 
       // Recursively expand imports
-      for (const importPath of fileData.imports) {
+      const importPaths = getImportPaths(fileData.imports);
+      for (const importPath of importPaths) {
         if (!isInternalImport(importPath)) {
           chains.push({
             file_path: importPath,

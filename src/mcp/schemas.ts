@@ -47,6 +47,7 @@ export const SearchCodebaseSchema = z.object({
   import_depth: z.number().int().min(1).max(3).optional(),
   dedup_threshold: z.number().min(0).max(1).optional(),
   similarity_threshold: z.number().min(0).max(1).optional(),
+  chunk_similarity_threshold: z.number().min(0).max(1).optional(),
 
   // Multi-project filtering
   workspace_filter: z.union([z.string(), z.array(z.string())]).optional(),

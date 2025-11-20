@@ -48,7 +48,11 @@ CREATE TABLE code_symbols (
     file_path TEXT NOT NULL,
     line_number INT NOT NULL,
     definition TEXT,
-    embedding vector(1024) -- Must match EMBEDDING_DIMENSIONS
+    embedding vector(1024), -- Must match EMBEDDING_DIMENSIONS
+    scope TEXT DEFAULT 'exported', -- 'exported' or 'internal'
+    workspace_id TEXT,
+    service_id TEXT,
+    is_internal BOOLEAN DEFAULT false
 );
 
 -- Indexes
@@ -56,6 +60,7 @@ CREATE INDEX idx_chunks_file ON code_chunks(file_path);
 CREATE INDEX idx_chunks_type ON code_chunks(chunk_type);
 CREATE INDEX idx_files_hash ON code_files(file_hash);
 CREATE INDEX idx_symbols_name ON code_symbols(symbol_name);
+CREATE INDEX idx_symbols_scope ON code_symbols(scope);
 
 -- Vector indexes: HNSW for production (20-30min build for 1M+ vectors), IVFFlat for testing
 CREATE INDEX idx_chunks_vector ON code_chunks USING hnsw (embedding vector_cosine_ops);

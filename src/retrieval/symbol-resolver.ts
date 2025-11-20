@@ -114,7 +114,7 @@ export const resolveSymbols = async (chunks: RelevantChunk[], db: DatabaseClient
 
   const query = `
     SELECT
-      symbol_id,
+      id AS symbol_id,
       symbol_name,
       symbol_type,
       file_path,
@@ -245,7 +245,7 @@ export const resolveSymbolsFiltered = async (
 
   const query = `
     SELECT
-      symbol_id,
+      id AS symbol_id,
       symbol_name,
       symbol_type,
       file_path,

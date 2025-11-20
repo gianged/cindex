@@ -46,15 +46,16 @@ export class EmbeddingGenerator {
    * using the configured model. Validates dimension matches configuration.
    *
    * @param chunk - Code chunk to embed
+   * @param fileSummary - Optional file summary for semantic context
    * @returns Chunk embedding with vector and metadata
    * @throws {VectorDimensionError} If embedding dimensions don't match config
    * @throws {EmbeddingGenerationError} If embedding generation fails
    */
-  public generateEmbedding = async (chunk: CodeChunkInput): Promise<ChunkEmbedding> => {
+  public generateEmbedding = async (chunk: CodeChunkInput, fileSummary?: string): Promise<ChunkEmbedding> => {
     const startTime = Date.now();
 
     // Build enhanced text with context
-    const enhancedText = this.buildEnhancedText(chunk);
+    const enhancedText = this.buildEnhancedText(chunk, fileSummary);
 
     try {
       // Generate embedding via Ollama
@@ -113,9 +114,10 @@ export class EmbeddingGenerator {
    *
    * @param chunks - Array of code chunks to embed
    * @param concurrency - Maximum concurrent requests (default: 5)
+   * @param fileSummary - Optional file summary for semantic context (applies to all chunks in batch)
    * @returns Array of chunk embeddings
    */
-  public generateBatch = async (chunks: CodeChunkInput[], concurrency = 5): Promise<ChunkEmbedding[]> => {
+  public generateBatch = async (chunks: CodeChunkInput[], concurrency = 5, fileSummary?: string): Promise<ChunkEmbedding[]> => {
     logger.info('Generating batch embeddings', {
       total: chunks.length,
       concurrency,
@@ -126,7 +128,7 @@ export class EmbeddingGenerator {
     const startTime = Date.now();
 
     // Build all enhanced texts first
-    const enhancedTexts = chunks.map((chunk) => this.buildEnhancedText(chunk));
+    const enhancedTexts = chunks.map((chunk) => this.buildEnhancedText(chunk, fileSummary));
 
     // Generate embeddings via Ollama batch API
     const embeddings = await this.ollamaClient.generateEmbeddingBatch(
@@ -174,15 +176,16 @@ export class EmbeddingGenerator {
   /**
    * Build enhanced text format for chunk embedding
    *
-   * Format: "FILE: {path} | TYPE: {type} | LANG: {lang} | CODE: {content} | SYMBOLS: {list}"
+   * Format: "SUMMARY: {file_summary} | CODE: {content} | SYMBOLS: {list}"
    *
-   * This structured format helps the embedding model understand the context and
-   * relationships between different code chunks.
+   * Includes file summary for semantic context to improve natural language query matching.
+   * Removes file path and type labels as they add noise without semantic value.
    *
    * @param chunk - Code chunk to enhance
+   * @param fileSummary - Optional file summary for semantic context
    * @returns Enhanced text string for embedding
    */
-  private buildEnhancedText = (chunk: CodeChunkInput): string => {
+  private buildEnhancedText = (chunk: CodeChunkInput, fileSummary?: string): string => {
     // Extract symbols from metadata
     const symbols: string[] = [];
 
@@ -198,14 +201,15 @@ export class EmbeddingGenerator {
     const symbolList = symbols.length > 0 ? symbols.join(', ') : 'none';
     const truncatedSymbols = symbolList.length > 200 ? symbolList.slice(0, 197) + '...' : symbolList;
 
-    // Build enhanced text with structured format
+    // Build enhanced text with file summary for semantic context
+    // File summary provides natural language description that helps match queries
     const enhancedText = [
-      `FILE: ${chunk.file_path}`,
-      `TYPE: ${chunk.chunk_type}`,
-      `LANG: ${chunk.language}`,
+      fileSummary ? `SUMMARY: ${fileSummary}` : undefined,
       `CODE: ${chunk.chunk_content}`,
       `SYMBOLS: ${truncatedSymbols}`,
-    ].join(' | ');
+    ]
+      .filter(Boolean)
+      .join(' | ');
 
     return enhancedText;
   };
