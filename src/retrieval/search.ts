@@ -28,8 +28,8 @@ import { determineSearchScope, type ScopeFilterConfig, type ScopeMode } from '@r
 import { resolveSymbols } from '@retrieval/symbol-resolver';
 import { generateCacheKey, searchResultCache } from '@utils/cache';
 import { logger } from '@utils/logger';
-import { PerformanceMonitor } from '@utils/performance';
 import { type OllamaClient } from '@utils/ollama';
+import { PerformanceMonitor } from '@utils/performance';
 import { type CindexConfig } from '@/types/config';
 import { type SearchOptions, type SearchResult } from '@/types/retrieval';
 
@@ -142,8 +142,10 @@ export const searchCodebase = async (
     exclude_repos: options.exclude_repos,
     cross_repo: options.cross_repo,
     service_ids: options.service_filter,
+    service_types: options.service_type_filter,
     exclude_services: options.exclude_services,
     workspace_ids: options.workspace_filter,
+    package_names: options.package_filter,
     exclude_workspaces: options.exclude_workspaces,
     include_references: options.include_references ?? false,
     include_documentation: options.include_documentation ?? false,

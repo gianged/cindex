@@ -22,6 +22,24 @@ export class EmbeddingGenerator {
   ) {}
 
   /**
+   * Get the configured embedding model name
+   *
+   * @returns Model name (e.g., 'bge-m3:567m', 'nomic-embed-text')
+   */
+  public getModelName = (): string => {
+    return this.config.model;
+  };
+
+  /**
+   * Get the configured embedding dimensions
+   *
+   * @returns Vector dimensions (e.g., 1024, 768)
+   */
+  public getDimensions = (): number => {
+    return this.config.dimensions;
+  };
+
+  /**
    * Generate embedding for a single code chunk
    *
    * Constructs enhanced text with file context and generates embedding vector

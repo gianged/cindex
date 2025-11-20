@@ -104,6 +104,13 @@ export const retrieveFiles = async (
     paramIndex++;
   }
 
+  // Filter by package names (package.json name field)
+  if (scopeFilter?.package_names && scopeFilter.package_names.length > 0) {
+    whereClauses.push(`package_name = ANY($${paramIndex.toString()}::text[])`);
+    params.push(scopeFilter.package_names);
+    paramIndex++;
+  }
+
   // Add maxFiles as final parameter
   params.push(maxFiles);
 

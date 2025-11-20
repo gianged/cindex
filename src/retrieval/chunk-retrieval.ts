@@ -203,6 +203,7 @@ export const retrieveChunksFiltered = async (
     repo_ids?: string[];
     workspace_ids?: string[];
     service_ids?: string[];
+    package_names?: string[];
   },
   maxChunks = 100,
   chunkSimilarityThreshold?: number
@@ -248,6 +249,11 @@ export const retrieveChunksFiltered = async (
   if (filters.service_ids && filters.service_ids.length > 0) {
     whereClauses.push(`service_id = ANY($${String(params.length + 1)}::text[])`);
     params.push(filters.service_ids);
+  }
+
+  if (filters.package_names && filters.package_names.length > 0) {
+    whereClauses.push(`package_name = ANY($${String(params.length + 1)}::text[])`);
+    params.push(filters.package_names);
   }
 
   const query = `

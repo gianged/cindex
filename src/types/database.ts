@@ -34,7 +34,7 @@ export interface CodeChunk extends RepositoryContext {
 /**
  * Chunk types (semantic code structure)
  */
-export type ChunkType = 'file_summary' | 'function' | 'class' | 'import_block' | 'fallback';
+export type ChunkType = 'file_summary' | 'function' | 'class' | 'import_block' | 'fallback' | 'structure-only';
 
 /**
  * Metadata for code chunks (JSONB)

@@ -32,11 +32,12 @@ export interface ScopeFilterConfig {
 
   // Service filtering
   service_ids?: string[]; // Include specific services
-  service_types?: string[]; // Include service types (e.g., 'rest', 'graphql')
+  service_types?: string[]; // Filter by service type (docker, serverless, mobile, library, other)
   exclude_services?: string[]; // Exclude specific services
 
   // Workspace filtering
   workspace_ids?: string[]; // Include specific workspaces
+  package_names?: string[]; // Filter by package.json name field
   exclude_workspaces?: string[]; // Exclude specific workspaces
 
   // Reference repository filtering
@@ -59,6 +60,10 @@ export interface ScopeFilter {
   repo_ids: string[];
   service_ids: string[];
   workspace_ids: string[];
+
+  // Additional filters
+  package_names?: string[]; // Package name filter (package.json name field)
+  service_types?: string[]; // Service type filter (docker, serverless, mobile, etc.)
 
   // Configuration
   mode: ScopeMode;
@@ -143,20 +148,41 @@ const getAllRepositories = async (
  *
  * @param db - Database client
  * @param repoIds - Repository IDs to filter by
+ * @param serviceTypes - Optional service types to filter by (docker, serverless, mobile, etc.)
  * @returns Array of service IDs
  */
-const getServicesForRepos = async (db: DatabaseClient, repoIds: string[]): Promise<string[]> => {
+const getServicesForRepos = async (
+  db: DatabaseClient,
+  repoIds: string[],
+  serviceTypes?: string[]
+): Promise<string[]> => {
   if (repoIds.length === 0) {
     return [];
   }
 
-  const query = `
-    SELECT service_id
-    FROM services
-    WHERE repo_id = ANY($1::text[])
-  `;
+  let query: string;
+  let params: unknown[];
 
-  const result = await db.query<ServiceRow>(query, [repoIds]);
+  if (serviceTypes && serviceTypes.length > 0) {
+    // Filter by both repo_id and service_type
+    query = `
+      SELECT service_id
+      FROM services
+      WHERE repo_id = ANY($1::text[])
+        AND service_type = ANY($2::text[])
+    `;
+    params = [repoIds, serviceTypes];
+  } else {
+    // Filter by repo_id only
+    query = `
+      SELECT service_id
+      FROM services
+      WHERE repo_id = ANY($1::text[])
+    `;
+    params = [repoIds];
+  }
+
+  const result = await db.query<ServiceRow>(query, params);
   return result.rows.map((r) => r.service_id);
 };
 
@@ -310,8 +336,8 @@ export const determineSearchScope = async (config: ScopeFilterConfig, db: Databa
     // Use specified services
     serviceIds = config.service_ids;
   } else {
-    // Get all services for filtered repos
-    serviceIds = await getServicesForRepos(db, repoIds);
+    // Get all services for filtered repos (with optional service_type filter)
+    serviceIds = await getServicesForRepos(db, repoIds, config.service_types);
   }
 
   if (config.workspace_ids && config.workspace_ids.length > 0) {
@@ -339,6 +365,8 @@ export const determineSearchScope = async (config: ScopeFilterConfig, db: Databa
     repo_ids: repoIds,
     service_ids: serviceIds,
     workspace_ids: workspaceIds,
+    package_names: config.package_names,
+    service_types: config.service_types,
     mode: config.mode,
     cross_repo: config.cross_repo ?? false,
     include_references: config.include_references ?? false,

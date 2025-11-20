@@ -218,16 +218,14 @@ export const searchCodebaseTool = async (
 
   // Validate multi-project filters with normalization
   const workspaceFilter = normalizeWorkspaceFilter(input.workspace_filter);
-  // Note: packageFilter is validated but not used in current implementation
-  // TODO: Add package_filter support for filtering by package.json name
-  // const packageFilter = validateArray('package_filter', input.package_filter, false) as string[] | undefined;
+  const packageFilter = validateArray('package_filter', input.package_filter, false) as string[] | undefined;
   const excludeWorkspaces = validateArray('exclude_workspaces', input.exclude_workspaces, false) as
     | string[]
     | undefined;
   const serviceFilter = normalizeServiceFilter(input.service_filter);
-  // Note: serviceTypeFilter is validated but not used in current implementation
-  // TODO: Add service_type_filter support for filtering by docker/serverless/mobile
-  // const serviceTypeFilter = validateArray('service_type_filter', input.service_type_filter, false) as string[] | undefined;
+  const serviceTypeFilter = validateArray('service_type_filter', input.service_type_filter, false) as
+    | string[]
+    | undefined;
   const excludeServices = validateArray('exclude_services', input.exclude_services, false) as string[] | undefined;
   const repoFilter = normalizeRepoFilter(input.repo_filter);
   const excludeRepos = validateArray('exclude_repos', input.exclude_repos, false) as string[] | undefined;
@@ -287,7 +285,9 @@ export const searchCodebaseTool = async (
 
     // Multi-project filtering
     workspace_filter: workspaceFilter,
+    package_filter: packageFilter,
     service_filter: serviceFilter,
+    service_type_filter: serviceTypeFilter,
     repo_filter: repoFilter,
     exclude_workspaces: excludeWorkspaces,
     exclude_services: excludeServices,

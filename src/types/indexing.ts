@@ -249,6 +249,9 @@ export enum ChunkType {
 
   /** Fallback chunk from regex-based parsing */
   Fallback = 'fallback',
+
+  /** Structure-only chunk for very large files (>5000 lines) */
+  StructureOnly = 'structure-only',
 }
 
 /**

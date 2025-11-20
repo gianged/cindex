@@ -18,7 +18,7 @@ import { type EmbeddingGenerator } from '@indexing/embeddings';
 import { type FileWalker } from '@indexing/file-walker';
 import { type APIImplementationLinker } from '@indexing/implementation-linker';
 import { detectFileChanges, processIncrementalChanges } from '@indexing/incremental';
-import { determineLargeFileStrategy } from '@indexing/large-file-handler';
+import { determineLargeFileStrategy, extractStructureOnlyMetadata } from '@indexing/large-file-handler';
 import { MetadataExtractor } from '@indexing/metadata';
 import { type CodeParser } from '@indexing/parser';
 import { type FileSummaryGenerator } from '@indexing/summary';
@@ -38,12 +38,15 @@ import {
   type WorkspaceDependency,
 } from '@/types/database';
 import {
+  ChunkType,
   IndexingStage,
   type ChunkEmbedding,
   type CodeChunkInput,
   type DiscoveredFile,
+  type ExportInfo,
   type ExtractedSymbol,
   type FileSummary,
+  type ImportInfo,
   type IndexingOptions,
   type IndexingStats,
   type ParseResult,
@@ -142,10 +145,10 @@ export class IndexingOrchestrator {
 
       // Stage 1.6: File Validation & Filtering (large file, binary, generated, minified)
       const validatedFiles: typeof filesToProcess = [];
+      const structureOnlyFiles: typeof filesToProcess = [];
       let skippedBinary = 0;
       let skippedGenerated = 0;
       let skippedMinified = 0;
-      let skippedVeryLarge = 0;
 
       for (const file of filesToProcess) {
         const strategy = determineLargeFileStrategy(file);
@@ -166,9 +169,8 @@ export class IndexingOrchestrator {
 
         if (strategy.useStructureOnly) {
           // Very large files: structure-only indexing
-          // TODO: Implement structure-only indexing in future iteration
-          skippedVeryLarge++;
-          logger.debug('Skipping very large file (structure-only not yet implemented)', {
+          structureOnlyFiles.push(file);
+          logger.debug('File marked for structure-only indexing', {
             file: file.relative_path,
             lines: file.line_count,
           });
@@ -181,16 +183,16 @@ export class IndexingOrchestrator {
       logger.info('File validation complete', {
         total_files: filesToProcess.length,
         validated_files: validatedFiles.length,
+        structure_only_files: structureOnlyFiles.length,
         skipped_binary: skippedBinary,
         skipped_generated: skippedGenerated,
         skipped_minified: skippedMinified,
-        skipped_very_large: skippedVeryLarge,
       });
 
       filesToProcess = validatedFiles;
 
-      // Initialize progress tracker
-      this.progressTracker.start(filesToProcess.length);
+      // Initialize progress tracker (including structure-only files)
+      this.progressTracker.start(filesToProcess.length + structureOnlyFiles.length);
 
       // Stage 2-7: Process each file through the pipeline
       for (const file of filesToProcess) {
@@ -199,6 +201,28 @@ export class IndexingOrchestrator {
           this.progressTracker.incrementFiles();
         } catch (error) {
           logger.error('File processing failed', {
+            file: file.relative_path,
+            error: error instanceof Error ? error.message : String(error),
+          });
+
+          this.progressTracker.incrementFailed();
+          this.progressTracker.recordError(
+            file.relative_path,
+            this.progressTracker.getStats().stage,
+            error instanceof Error ? error.message : String(error)
+          );
+
+          // Continue with next file
+        }
+      }
+
+      // Stage 2-7 (Structure-Only): Process very large files with structure-only indexing
+      for (const file of structureOnlyFiles) {
+        try {
+          await this.processStructureOnlyFile(file);
+          this.progressTracker.incrementFiles();
+        } catch (error) {
+          logger.error('Structure-only file processing failed', {
             file: file.relative_path,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -304,6 +328,134 @@ export class IndexingOrchestrator {
       symbols
     );
     this.performanceMonitor.endStage(persistMetricId);
+  };
+
+  /**
+   * Process very large file with structure-only indexing
+   *
+   * For files >5000 lines, we extract only structure metadata (imports, exports,
+   * top-level declarations) and create a single lightweight chunk representing
+   * the file structure. This avoids the overhead of detailed parsing, chunking,
+   * and symbol extraction while still making the file discoverable via search.
+   *
+   * @param file - Discovered file
+   */
+  private processStructureOnlyFile = async (file: DiscoveredFile): Promise<void> => {
+    // Read file content
+    const content = await fs.readFile(file.absolute_path, 'utf-8');
+
+    // Extract structure metadata (imports, exports, declarations)
+    this.progressTracker.setStage(IndexingStage.Parsing);
+    const parseMetricId = this.performanceMonitor.startStage('structure-extraction', file.relative_path);
+    const structureMetadata = extractStructureOnlyMetadata(content);
+    this.performanceMonitor.endStage(parseMetricId);
+
+    // Generate simple text-based summary (no LLM)
+    this.progressTracker.setStage(IndexingStage.Summarizing);
+    const summaryMetricId = this.performanceMonitor.startStage('structure-summary', file.relative_path);
+    const summaryText = `Large file (${structureMetadata.totalLines.toString()} lines) with structure-only indexing. Exports: ${structureMetadata.exports.join(', ') || 'none'}. Imports: ${structureMetadata.imports.slice(0, 10).join(', ')}${structureMetadata.imports.length > 10 ? '...' : ''}. Top-level declarations: ${structureMetadata.topLevelDeclarations.slice(0, 10).join(', ')}${structureMetadata.topLevelDeclarations.length > 10 ? '...' : ''}.`;
+    this.performanceMonitor.endStage(summaryMetricId);
+    this.progressTracker.recordSummary('rule-based');
+
+    // Generate embedding for summary
+    this.progressTracker.setStage(IndexingStage.Embedding);
+    const embeddingMetricId = this.performanceMonitor.startStage('structure-embedding', file.relative_path);
+    const summaryEmbedding = await this.embeddingGenerator.generateTextEmbedding(
+      summaryText,
+      `structure-only summary for ${file.relative_path}`
+    );
+    this.performanceMonitor.endStage(embeddingMetricId, 1);
+    this.progressTracker.incrementEmbedded(1);
+
+    // Create a single structure-only chunk
+    const structureChunk: CodeChunkInput = {
+      chunk_id: `${file.relative_path}:structure`,
+      file_path: file.relative_path,
+      language: file.language,
+      chunk_content: `// Structure-only indexing\n// File: ${file.relative_path}\n// Lines: ${structureMetadata.totalLines.toString()}\n\nExports: ${structureMetadata.exports.join(', ') || 'none'}\n\nImports:\n${structureMetadata.imports.map((imp) => `  - ${imp}`).join('\n') || '  (none)'}\n\nTop-level declarations:\n${structureMetadata.topLevelDeclarations.map((decl) => `  - ${decl}`).join('\n') || '  (none)'}`,
+      chunk_type: ChunkType.StructureOnly,
+      start_line: 1,
+      end_line: structureMetadata.totalLines,
+      token_count: Math.ceil(summaryText.length / 4), // Rough estimate
+      created_at: new Date(),
+      metadata: {
+        indexing_strategy: 'structure-only',
+        total_declarations: structureMetadata.topLevelDeclarations.length,
+        total_imports: structureMetadata.imports.length,
+        total_exports: structureMetadata.exports.length,
+      },
+    };
+
+    const chunkEmbedding: ChunkEmbedding = {
+      chunk_id: `${file.relative_path}:structure`,
+      embedding: summaryEmbedding,
+      embedding_model: this.embeddingGenerator.getModelName(),
+      dimension: this.embeddingGenerator.getDimensions(),
+      generation_time_ms: 0, // Already measured in embeddingMetricId
+      enhanced_text: summaryText,
+    };
+
+    this.progressTracker.incrementChunks(1);
+
+    // Skip symbol extraction for structure-only files
+    this.progressTracker.setStage(IndexingStage.Symbols);
+    // No symbols extracted for structure-only files
+
+    // Persist to database
+    this.progressTracker.setStage(IndexingStage.Persisting);
+    const persistMetricId = this.performanceMonitor.startStage('structure-persistence', file.relative_path);
+
+    // Build ParseResult for persistence (structure metadata only)
+    // Convert string arrays to ImportInfo/ExportInfo arrays
+    const imports: ImportInfo[] = structureMetadata.imports.map((source, index) => ({
+      symbols: [],
+      source,
+      is_default: false,
+      is_namespace: false,
+      line_number: index + 1, // Approximate line numbers
+    }));
+
+    const exports: ExportInfo[] = structureMetadata.exports.map((symbol, index) => ({
+      symbols: [symbol],
+      is_default: false,
+      is_reexport: false,
+      line_number: index + 1, // Approximate line numbers
+    }));
+
+    const parseResult: ParseResult = {
+      success: true,
+      used_fallback: false,
+      imports,
+      exports,
+      nodes: [],
+    };
+
+    const fileSummary: FileSummary = {
+      file_path: file.relative_path,
+      summary_text: summaryText,
+      summary_method: 'rule-based',
+      generation_time_ms: 0, // No LLM generation time
+    };
+
+    await this.persistFileData(
+      file,
+      parseResult,
+      fileSummary,
+      summaryEmbedding,
+      [structureChunk],
+      [chunkEmbedding],
+      []
+    );
+
+    this.performanceMonitor.endStage(persistMetricId);
+
+    logger.debug('Structure-only file processed', {
+      file: file.relative_path,
+      lines: structureMetadata.totalLines,
+      exports: structureMetadata.exports.length,
+      imports: structureMetadata.imports.length,
+      declarations: structureMetadata.topLevelDeclarations.length,
+    });
   };
 
   /**

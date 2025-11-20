@@ -501,8 +501,14 @@ export interface SearchOptions {
   /** Workspace IDs to search within (monorepo filtering) */
   workspace_filter?: string[];
 
+  /** Package names to filter by (package.json name field) */
+  package_filter?: string[];
+
   /** Service IDs to search within (microservice filtering) */
   service_filter?: string[];
+
+  /** Service types to filter by (docker, serverless, mobile, library, other) */
+  service_type_filter?: string[];
 
   /** Repository IDs to exclude from search */
   exclude_repos?: string[];
