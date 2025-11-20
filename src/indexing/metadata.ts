@@ -343,10 +343,22 @@ export const extractMetadata = (parseResult: ParseResult, code: string): ChunkMe
 };
 
 /**
- * Classify import as internal or external (monorepo helper)
+ * Classify import path as internal (workspace/relative) or external (npm package)
  *
- * @param importPath - Import source path
- * @returns true if internal workspace import, false if external
+ * Helper function for monorepo import analysis that determines whether an import
+ * is internal to the project (workspace reference or relative path) or external
+ * (npm package from node_modules). Useful for:
+ * - Detecting monorepo workspace dependencies
+ * - Distinguishing between project code and third-party libraries
+ * - Import chain expansion boundary detection
+ *
+ * Classification rules:
+ * - Workspace patterns (e.g., @workspace/*, ~/*, #*) → internal
+ * - Relative paths (./, ../) → internal
+ * - Everything else → external (npm packages)
+ *
+ * @param importPath - Import source path from import statement
+ * @returns true if internal workspace/relative import, false if external npm package
  */
 export const classifyImport = (importPath: string): boolean => {
   // Check workspace patterns
@@ -364,10 +376,28 @@ export const classifyImport = (importPath: string): boolean => {
 };
 
 /**
- * Calculate cyclomatic complexity from code (standalone function)
+ * Calculate cyclomatic complexity from code string
  *
- * Complexity = decision points + 1
- * Decision points: if, else, while, for, case, &&, ||, ?, catch
+ * Computes the cyclomatic complexity metric by counting decision points in code.
+ * This metric indicates code complexity and testing requirements - higher values
+ * suggest more complex logic requiring more test cases.
+ *
+ * Formula: Complexity = decision points + 1
+ *
+ * Counted decision points:
+ * - Control flow: if, else, while, for, case
+ * - Logical operators: && (AND), || (OR)
+ * - Ternary operator: ?
+ * - Error handling: catch
+ *
+ * Complexity interpretation:
+ * - 1-5: Simple, easy to test
+ * - 6-10: Moderate complexity
+ * - 11-20: Complex, needs refactoring consideration
+ * - 21+: Very complex, high maintenance cost
+ *
+ * @param code - Raw code content to analyze
+ * @returns Cyclomatic complexity score (minimum 1)
  */
 export const calculateComplexity = (code: string): number => {
   let complexity = 1;

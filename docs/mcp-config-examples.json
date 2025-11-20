@@ -1,0 +1,389 @@
+{
+  "description": "MCP Configuration Examples for cindex",
+  "version": "0.1.0",
+  "scopes": {
+    "user": {
+      "description": "User-level configuration (~/.config/claude/mcp.json) - Global settings for all projects",
+      "path": "~/.config/claude/mcp.json",
+      "example": {
+        "mcpServers": {
+          "cindex": {
+            "command": "npx",
+            "args": ["-y", "@gianged/cindex"],
+            "env": {
+              "POSTGRES_HOST": "localhost",
+              "POSTGRES_PORT": "5432",
+              "POSTGRES_DB": "cindex_rag_codebase",
+              "POSTGRES_USER": "postgres",
+              "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}",
+              "EMBEDDING_MODEL": "bge-m3:567m",
+              "EMBEDDING_DIMENSIONS": "1024",
+              "EMBEDDING_CONTEXT_WINDOW": "4096",
+              "SUMMARY_MODEL": "qwen2.5-coder:7b",
+              "SUMMARY_CONTEXT_WINDOW": "4096",
+              "OLLAMA_HOST": "http://localhost:11434",
+              "HNSW_EF_SEARCH": "300",
+              "HNSW_EF_CONSTRUCTION": "200",
+              "SIMILARITY_THRESHOLD": "0.75",
+              "DEDUP_THRESHOLD": "0.92"
+            }
+          }
+        }
+      },
+      "notes": [
+        "Use ${POSTGRES_PASSWORD} for environment variable expansion",
+        "Set POSTGRES_PASSWORD in your shell environment",
+        "This configuration applies to all projects using cindex"
+      ]
+    },
+    "project": {
+      "description": "Project-level configuration (.mcp.json in project root) - Team-shared settings",
+      "path": ".mcp.json",
+      "example": {
+        "mcpServers": {
+          "cindex": {
+            "command": "node",
+            "args": ["./dist/index.js"],
+            "env": {
+              "POSTGRES_HOST": "${POSTGRES_HOST:-localhost}",
+              "POSTGRES_PORT": "${POSTGRES_PORT:-5432}",
+              "POSTGRES_DB": "${POSTGRES_DB:-cindex_rag_codebase}",
+              "POSTGRES_USER": "${POSTGRES_USER:-postgres}",
+              "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}",
+              "EMBEDDING_MODEL": "${EMBEDDING_MODEL:-bge-m3:567m}",
+              "EMBEDDING_DIMENSIONS": "${EMBEDDING_DIMENSIONS:-1024}",
+              "SUMMARY_MODEL": "${SUMMARY_MODEL:-qwen2.5-coder:7b}",
+              "OLLAMA_HOST": "${OLLAMA_HOST:-http://localhost:11434}"
+            }
+          }
+        }
+      },
+      "notes": [
+        "Add .mcp.json to .gitignore if it contains sensitive data",
+        "Use ${VAR:-default} syntax for optional variables with defaults",
+        "Team members must set POSTGRES_PASSWORD in their shell environment",
+        "This configuration is specific to the project directory"
+      ]
+    },
+    "local": {
+      "description": "Local development configuration - Temporary overrides",
+      "path": ".mcp.local.json",
+      "example": {
+        "mcpServers": {
+          "cindex": {
+            "command": "node",
+            "args": ["./dist/index.js"],
+            "env": {
+              "POSTGRES_HOST": "localhost",
+              "POSTGRES_PORT": "5432",
+              "POSTGRES_DB": "cindex_rag_codebase_dev",
+              "POSTGRES_USER": "postgres",
+              "POSTGRES_PASSWORD": "dev_password_123",
+              "EMBEDDING_MODEL": "bge-m3:567m",
+              "SUMMARY_MODEL": "qwen2.5-coder:1.5b",
+              "OLLAMA_HOST": "http://localhost:11434",
+              "HNSW_EF_SEARCH": "100",
+              "SIMILARITY_THRESHOLD": "0.70"
+            }
+          }
+        }
+      },
+      "notes": [
+        "Add .mcp.local.json to .gitignore (never commit this file)",
+        "Use for local development with different database or model settings",
+        "Overrides project-level configuration",
+        "Example uses speed-first settings (lower accuracy, faster queries)"
+      ]
+    }
+  },
+  "configurations": {
+    "accuracy_first": {
+      "description": "Accuracy-first configuration (default) - Best retrieval quality",
+      "settings": {
+        "EMBEDDING_MODEL": "bge-m3:567m",
+        "SUMMARY_MODEL": "qwen2.5-coder:7b",
+        "HNSW_EF_SEARCH": "300",
+        "HNSW_EF_CONSTRUCTION": "200",
+        "SIMILARITY_THRESHOLD": "0.75",
+        "DEDUP_THRESHOLD": "0.92"
+      },
+      "performance": {
+        "indexing_speed": "300-600 files/min",
+        "query_time": "<800ms",
+        "relevance": ">92% in top 10 results",
+        "context_noise": "<2%"
+      }
+    },
+    "speed_first": {
+      "description": "Speed-first configuration - Faster queries with lower accuracy",
+      "settings": {
+        "EMBEDDING_MODEL": "bge-m3:567m",
+        "SUMMARY_MODEL": "qwen2.5-coder:1.5b",
+        "HNSW_EF_SEARCH": "100",
+        "HNSW_EF_CONSTRUCTION": "100",
+        "SIMILARITY_THRESHOLD": "0.70",
+        "DEDUP_THRESHOLD": "0.90"
+      },
+      "performance": {
+        "indexing_speed": "500-1000 files/min",
+        "query_time": "<500ms",
+        "relevance": ">85% in top 10 results",
+        "context_noise": "<5%"
+      }
+    },
+    "balanced": {
+      "description": "Balanced configuration - Good accuracy with reasonable speed",
+      "settings": {
+        "EMBEDDING_MODEL": "bge-m3:567m",
+        "SUMMARY_MODEL": "qwen2.5-coder:3b",
+        "HNSW_EF_SEARCH": "200",
+        "HNSW_EF_CONSTRUCTION": "150",
+        "SIMILARITY_THRESHOLD": "0.72",
+        "DEDUP_THRESHOLD": "0.91"
+      },
+      "performance": {
+        "indexing_speed": "400-800 files/min",
+        "query_time": "<650ms",
+        "relevance": ">88% in top 10 results",
+        "context_noise": "<3%"
+      }
+    },
+    "large_codebase": {
+      "description": "Optimized for codebases >500k LoC - Higher precision, lower recall",
+      "settings": {
+        "EMBEDDING_MODEL": "bge-m3:567m",
+        "SUMMARY_MODEL": "qwen2.5-coder:7b",
+        "HNSW_EF_SEARCH": "400",
+        "HNSW_EF_CONSTRUCTION": "300",
+        "SIMILARITY_THRESHOLD": "0.80",
+        "DEDUP_THRESHOLD": "0.94"
+      },
+      "notes": [
+        "Higher similarity threshold reduces noise in large codebases",
+        "HNSW index build may take 15-45 minutes for 1M+ vectors",
+        "Consider using faster summary model (1.5b or 3b) for initial indexing"
+      ]
+    }
+  },
+  "environment_variables": {
+    "required": {
+      "POSTGRES_PASSWORD": {
+        "description": "PostgreSQL database password",
+        "example": "your_secure_password",
+        "notes": [
+          "Set in shell environment, never commit to version control",
+          "Use strong password for production databases"
+        ]
+      }
+    },
+    "database": {
+      "POSTGRES_HOST": {
+        "description": "PostgreSQL server host",
+        "default": "localhost",
+        "example": "db.example.com"
+      },
+      "POSTGRES_PORT": {
+        "description": "PostgreSQL server port",
+        "default": "5432",
+        "example": "5432"
+      },
+      "POSTGRES_DB": {
+        "description": "Database name for cindex",
+        "default": "cindex_rag_codebase",
+        "example": "cindex_rag_codebase_prod"
+      },
+      "POSTGRES_USER": {
+        "description": "PostgreSQL user",
+        "default": "postgres",
+        "example": "cindex_user"
+      }
+    },
+    "models": {
+      "EMBEDDING_MODEL": {
+        "description": "Ollama embedding model",
+        "default": "bge-m3:567m",
+        "options": ["bge-m3:567m", "nomic-embed-text", "mxbai-embed-large"],
+        "notes": [
+          "Must match EMBEDDING_DIMENSIONS (bge-m3:567m = 1024 dimensions)",
+          "Download with: ollama pull bge-m3:567m"
+        ]
+      },
+      "EMBEDDING_DIMENSIONS": {
+        "description": "Vector dimensions for embeddings",
+        "default": "1024",
+        "notes": [
+          "Must match embedding model output size",
+          "bge-m3:567m = 1024, nomic-embed-text = 768"
+        ]
+      },
+      "EMBEDDING_CONTEXT_WINDOW": {
+        "description": "Token limit for embedding model",
+        "default": "4096",
+        "range": "512-131072",
+        "notes": [
+          "bge-m3:567m supports up to 8K tokens",
+          "Default 4096 is sufficient (cindex uses first 100 lines per file)",
+          "Higher values consume more VRAM"
+        ]
+      },
+      "SUMMARY_MODEL": {
+        "description": "Ollama LLM model for file summaries",
+        "default": "qwen2.5-coder:7b",
+        "options": ["qwen2.5-coder:7b", "qwen2.5-coder:3b", "qwen2.5-coder:1.5b"],
+        "notes": [
+          "Larger models (7b) = better summaries, slower indexing",
+          "Smaller models (1.5b) = faster indexing, lower quality",
+          "Download with: ollama pull qwen2.5-coder:7b"
+        ]
+      },
+      "SUMMARY_CONTEXT_WINDOW": {
+        "description": "Token limit for summary model",
+        "default": "4096",
+        "range": "512-131072",
+        "notes": [
+          "qwen2.5-coder:7b supports up to 32K tokens",
+          "Default 4096 is sufficient for most files"
+        ]
+      },
+      "OLLAMA_HOST": {
+        "description": "Ollama API server URL",
+        "default": "http://localhost:11434",
+        "example": "http://ollama-server:11434"
+      }
+    },
+    "performance": {
+      "HNSW_EF_SEARCH": {
+        "description": "HNSW search accuracy parameter",
+        "default": "300",
+        "range": "1-1000",
+        "notes": [
+          "Higher = more accurate, slower queries",
+          "300 = accuracy-first, 100 = speed-first"
+        ]
+      },
+      "HNSW_EF_CONSTRUCTION": {
+        "description": "HNSW index build quality parameter",
+        "default": "200",
+        "range": "1-1000",
+        "notes": [
+          "Higher = better index quality, slower indexing",
+          "Set once during initial index build"
+        ]
+      },
+      "SIMILARITY_THRESHOLD": {
+        "description": "Minimum cosine similarity for retrieval",
+        "default": "0.75",
+        "range": "0.0-1.0",
+        "notes": [
+          "Higher = more precise, lower recall",
+          "0.75 = accuracy-first, 0.70 = speed-first"
+        ]
+      },
+      "DEDUP_THRESHOLD": {
+        "description": "Similarity threshold for deduplication",
+        "default": "0.92",
+        "range": "0.0-1.0",
+        "notes": [
+          "Removes duplicate results with similarity > threshold",
+          "Prevents utility function pollution"
+        ]
+      }
+    }
+  },
+  "hardware_requirements": {
+    "minimum": {
+      "ram": "8GB",
+      "disk": "10GB free (for PostgreSQL + embeddings)",
+      "cpu": "4 cores",
+      "notes": [
+        "Can run with 8GB RAM using qwen2.5-coder:1.5b",
+        "Indexing will be slower on minimum specs"
+      ]
+    },
+    "recommended": {
+      "ram": "16GB",
+      "vram": "8GB GPU (optional, for faster Ollama)",
+      "disk": "20GB SSD",
+      "cpu": "8 cores",
+      "notes": [
+        "GPU acceleration significantly speeds up embedding/summary generation",
+        "SSD improves PostgreSQL performance for large indexes"
+      ]
+    },
+    "large_codebase": {
+      "ram": "32GB",
+      "vram": "16GB GPU",
+      "disk": "50GB NVMe SSD",
+      "cpu": "16 cores",
+      "notes": [
+        "For codebases >500k LoC",
+        "PostgreSQL HNSW index build can take 15-45 minutes for 1M+ vectors"
+      ]
+    }
+  },
+  "setup_checklist": [
+    "1. Install PostgreSQL 16+ with pgvector extension",
+    "2. Install Ollama and pull required models (bge-m3:567m, qwen2.5-coder:7b)",
+    "3. Create database: createdb cindex_rag_codebase",
+    "4. Initialize schema: psql cindex_rag_codebase < database.sql",
+    "5. Set POSTGRES_PASSWORD in shell environment",
+    "6. Choose configuration scope (user, project, or local)",
+    "7. Create MCP config file with appropriate settings",
+    "8. Install cindex: npm install -g @gianged/cindex (or use npx)",
+    "9. Test Ollama connection: ollama list",
+    "10. Test PostgreSQL connection: psql -d cindex_rag_codebase -c 'SELECT 1;'",
+    "11. Configure Claude Code to use cindex MCP server",
+    "12. Index your first repository using index_repository tool"
+  ],
+  "troubleshooting": {
+    "ollama_connection_failed": {
+      "error": "Failed to connect to Ollama",
+      "solutions": [
+        "Check if Ollama is running: systemctl status ollama",
+        "Start Ollama: ollama serve",
+        "Verify OLLAMA_HOST setting in MCP config",
+        "Check firewall rules if using remote Ollama server"
+      ]
+    },
+    "postgres_connection_failed": {
+      "error": "Failed to connect to PostgreSQL",
+      "solutions": [
+        "Check if PostgreSQL is running: sudo systemctl status postgresql",
+        "Verify POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB settings",
+        "Check POSTGRES_PASSWORD is set correctly",
+        "Verify PostgreSQL allows connections from host",
+        "Check pg_hba.conf for authentication settings"
+      ]
+    },
+    "vector_dimension_mismatch": {
+      "error": "Vector dimension mismatch",
+      "solutions": [
+        "Ensure EMBEDDING_DIMENSIONS matches model output",
+        "bge-m3:567m = 1024 dimensions",
+        "nomic-embed-text = 768 dimensions",
+        "Update database.sql vector(N) declarations if changing models",
+        "Drop and recreate database after model change"
+      ]
+    },
+    "slow_indexing": {
+      "error": "Indexing is very slow",
+      "solutions": [
+        "Use smaller summary model: qwen2.5-coder:1.5b or 3b",
+        "Lower HNSW_EF_CONSTRUCTION to 100",
+        "Reduce EMBEDDING_CONTEXT_WINDOW to 2048",
+        "Use GPU acceleration for Ollama if available",
+        "Check disk I/O (use SSD for PostgreSQL data)"
+      ]
+    },
+    "low_quality_results": {
+      "error": "Search results are not relevant",
+      "solutions": [
+        "Increase SIMILARITY_THRESHOLD to 0.80",
+        "Increase HNSW_EF_SEARCH to 400",
+        "Use larger summary model: qwen2.5-coder:7b",
+        "Re-index repository with higher quality settings",
+        "Check if repository is properly indexed (use list_indexed_repos)"
+      ]
+    }
+  }
+}

@@ -33,5 +33,5 @@
     "types": ["node", "jest"]
   },
   "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist", "tests/fixtures", "tests/helpers/*.js"]
+  "exclude": ["node_modules", "dist", "tests/**/*"]
 }

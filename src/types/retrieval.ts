@@ -12,7 +12,7 @@
  * - Stage 7: Context assembly
  */
 
-import { type RepositoryType } from '@/types/database';
+import { type RepositoryType } from './database';
 
 /**
  * Query type classification
@@ -572,4 +572,16 @@ export interface SearchOptions {
 
   /** Strict service scope (don't cross service boundaries, default: false) */
   strict_service_scope?: boolean;
+
+  /** Workspace scope configuration (advanced boundary control) */
+  workspace_scope?: {
+    mode: 'strict' | 'inclusive' | 'unrestricted';
+    max_depth?: number;
+  };
+
+  /** Service scope configuration (advanced boundary control) */
+  service_scope?: {
+    mode: 'strict' | 'inclusive' | 'unrestricted';
+    max_depth?: number;
+  };
 }

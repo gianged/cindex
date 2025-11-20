@@ -6,6 +6,7 @@ import pg from 'pg';
 
 import {
   DatabaseConnectionError,
+  DatabaseNotConnectedError,
   DatabaseNotFoundError,
   DatabaseQueryError,
   VectorExtensionError,
@@ -73,7 +74,7 @@ export class DatabaseClient {
    */
   async healthCheck(expectedVectorDimensions: number): Promise<void> {
     if (!this.isConnected || !this.pool) {
-      throw new Error('Database not connected');
+      throw new DatabaseNotConnectedError('health check');
     }
 
     logger.debug('Performing database health check');
@@ -170,7 +171,7 @@ export class DatabaseClient {
     params: unknown[]
   ): Promise<pg.QueryResult<T>> {
     if (!this.isConnected || !this.pool) {
-      throw new Error('Database not connected');
+      throw new DatabaseNotConnectedError('query execution');
     }
 
     try {
@@ -185,7 +186,7 @@ export class DatabaseClient {
    */
   async transaction<T>(callback: (client: pg.PoolClient) => Promise<T>): Promise<T> {
     if (!this.pool) {
-      throw new Error('Database not connected');
+      throw new DatabaseNotConnectedError('transaction');
     }
 
     const client = await this.pool.connect();
@@ -221,6 +222,19 @@ export class DatabaseClient {
    */
   get connected(): boolean {
     return this.isConnected;
+  }
+
+  /**
+   * Get underlying connection pool
+   * Required for MCP tools that expect pg.Pool
+   *
+   * @throws DatabaseNotConnectedError if database not connected
+   */
+  getPool(): pg.Pool {
+    if (!this.pool) {
+      throw new DatabaseNotConnectedError('getPool');
+    }
+    return this.pool;
   }
 
   /**

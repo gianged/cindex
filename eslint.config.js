@@ -6,29 +6,31 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  // Base recommended configs
+  // Base recommended configs (non-type-checked)
   js.configs.recommended,
-  ...tseslint.configs.strictTypeChecked,
-  ...tseslint.configs.stylisticTypeChecked,
 
-  // Global settings
+  // Global settings for all TypeScript files
   {
+    files: ['**/*.ts'],
     languageOptions: {
       globals: {
         ...globals.node,
         ...globals.es2022,
       },
       parser: tseslint.parser,
+    },
+  },
+
+  // Main configuration for source files with strict type-checking
+  {
+    files: ['src/**/*.ts'],
+    extends: [...tseslint.configs.strictTypeChecked, ...tseslint.configs.stylisticTypeChecked],
+    languageOptions: {
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
-  },
-
-  // Main configuration for source files
-  {
-    files: ['src/**/*.ts'],
     plugins: {
       '@typescript-eslint': tseslint.plugin,
       import: importPlugin,
@@ -143,23 +145,19 @@ export default defineConfig(
     },
   },
 
-  // Test files configuration
+  // Test files configuration (relaxed rules, no type-checking)
   {
     files: ['tests/**/*.ts', 'src/**/*.test.ts', 'src/**/*.spec.ts'],
     languageOptions: {
-      parserOptions: {
-        allowDefaultProject: true, // Allow test files not in tsconfig.json
+      globals: {
+        ...globals.node,
+        ...globals.jest,
       },
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'off', // Allow any in tests
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-call': 'off',
-      '@typescript-eslint/no-unsafe-argument': 'off',
-      '@typescript-eslint/no-unsafe-return': 'off',
-      '@typescript-eslint/no-non-null-assertion': 'off', // Allow ! operator in tests
-      '@typescript-eslint/require-await': 'off', // Allow async without await in tests
+      // Basic quality rules for tests
+      'no-console': 'off',
+      '@typescript-eslint/no-unused-vars': 'off', // Allow unused vars in tests
       'n/no-unpublished-import': 'off', // Allow dev dependencies
     },
   },

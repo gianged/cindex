@@ -5,6 +5,8 @@
  * and metadata extraction across single-repo, monorepo, and microservice architectures.
  */
 
+import { type RepositoryType } from '@/types/database';
+
 /**
  * Supported programming languages for code parsing and analysis
  */
@@ -369,32 +371,100 @@ export interface APIEndpointInfo {
  * File processing options for indexing pipeline
  */
 export interface IndexingOptions {
+  // Core options
+  /** Enable incremental indexing (skip unchanged files) */
+  incremental?: boolean;
+
+  /** Languages to index (empty array = all languages) */
+  languages?: string[];
+
   /** Include markdown files (except README.md which is always included) */
-  include_markdown: boolean;
+  includeMarkdown?: boolean;
+
+  /** Respect .gitignore patterns during file discovery */
+  respectGitignore?: boolean;
 
   /** Maximum file size in lines (skip larger files) */
-  max_file_size: number;
+  maxFileSize?: number;
 
-  /** Target chunk size range */
-  chunk_size_min: number;
-  chunk_size_max: number;
+  /** Summary generation method */
+  summaryMethod?: 'llm' | 'rule-based';
 
-  /** Enable workspace detection for monorepos */
-  enable_workspace_detection: boolean;
-
-  /** Enable service detection for microservices */
-  enable_service_detection: boolean;
-
-  /** Enable multi-repository support */
-  enable_multi_repo: boolean;
-
-  /** Enable API endpoint detection */
-  enable_api_endpoint_detection: boolean;
-
+  // Repository configuration
   /** Repository ID for multi-project mode */
-  repo_id?: string;
+  repoId?: string;
+
+  /** Repository name */
+  repoName?: string;
 
   /** Repository type */
+  repoType?: RepositoryType;
+
+  // Multi-project options
+  /** Enable workspace detection for monorepos */
+  detectWorkspaces?: boolean;
+
+  /** Workspace configuration (package.json patterns, etc.) */
+  workspaceConfig?: unknown;
+
+  /** Resolve workspace import aliases */
+  resolveWorkspaceAliases?: boolean;
+
+  /** Enable service detection for microservices */
+  detectServices?: boolean;
+
+  /** Service configuration (docker-compose, serverless, etc.) */
+  serviceConfig?: unknown;
+
+  /** Detect API endpoints in services */
+  detectApiEndpoints?: boolean;
+
+  /** Link to other indexed repositories */
+  linkToRepos?: string[];
+
+  /** Update cross-repository dependencies */
+  updateCrossRepoDeps?: boolean;
+
+  // Reference repository options
+  /** Version string for reference repositories */
+  version?: string;
+
+  /** Force re-indexing even if version matches */
+  forceReindex?: boolean;
+
+  /** Additional metadata */
+  metadata?: Record<string, unknown>;
+
+  /** Progress callback for MCP notifications */
+  onProgress?: (stage: string, current: number, total: number, message: string, etaSeconds?: number) => void;
+
+  // Legacy properties (for backwards compatibility)
+  /** @deprecated Use includeMarkdown */
+  include_markdown?: boolean;
+
+  /** @deprecated Use maxFileSize */
+  max_file_size?: number;
+
+  /** Target chunk size range */
+  chunk_size_min?: number;
+  chunk_size_max?: number;
+
+  /** @deprecated Use detectWorkspaces */
+  enable_workspace_detection?: boolean;
+
+  /** @deprecated Use detectServices */
+  enable_service_detection?: boolean;
+
+  /** Enable multi-repository support */
+  enable_multi_repo?: boolean;
+
+  /** @deprecated Use detectApiEndpoints */
+  enable_api_endpoint_detection?: boolean;
+
+  /** @deprecated Use repoId */
+  repo_id?: string;
+
+  /** @deprecated Use repoType */
   repo_type?: 'monorepo' | 'microservice' | 'monolithic';
 }
 
@@ -565,8 +635,19 @@ export enum IndexingStage {
  * Complete indexing statistics
  */
 export interface IndexingStats {
+  // Repository identification
+  /** Repository ID */
+  repo_id?: string;
+
+  /** Repository type */
+  repo_type?: string;
+
+  // File statistics
   /** Total files to process */
   files_total: number;
+
+  /** Files successfully indexed (alias for files_processed) */
+  files_indexed: number;
 
   /** Files successfully processed */
   files_processed: number;
@@ -574,21 +655,41 @@ export interface IndexingStats {
   /** Files that failed processing */
   files_failed: number;
 
+  // Chunk statistics
   /** Total chunks generated */
   chunks_total: number;
+
+  /** Chunks created (alias for chunks_total) */
+  chunks_created: number;
 
   /** Chunks successfully embedded */
   chunks_embedded: number;
 
+  // Symbol statistics
   /** Symbols extracted */
   symbols_extracted: number;
 
+  // Multi-project statistics
+  /** Workspaces detected (monorepo) */
+  workspaces_detected?: number;
+
+  /** Services detected (microservice) */
+  services_detected?: number;
+
+  /** API endpoints found */
+  api_endpoints_found?: number;
+
+  // Timing statistics
   /** Total time taken in milliseconds */
   total_time_ms: number;
+
+  /** Indexing time in milliseconds (alias for total_time_ms) */
+  indexing_time_ms: number;
 
   /** Average time per file in milliseconds */
   avg_file_time_ms: number;
 
+  // Summary statistics
   /** Summaries generated using LLM */
   summaries_llm: number;
 

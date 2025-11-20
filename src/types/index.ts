@@ -44,4 +44,4 @@ export type * from './service';
 export type * from './mcp-tools';
 
 // Configuration types
-export * from './config';
+export type * from './config';

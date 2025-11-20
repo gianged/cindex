@@ -79,8 +79,10 @@ const LANGUAGE_PARSERS: Record<Language, object | null> = {
  */
 export class CodeParser {
   private parser: Parser;
+  private language: Language;
 
-  constructor(private readonly language: Language) {
+  constructor(language: Language = Language.Unknown) {
+    this.language = language;
     this.parser = new Parser();
 
     const parserLanguage = LANGUAGE_PARSERS[language];
@@ -88,6 +90,18 @@ export class CodeParser {
       this.parser.setLanguage(parserLanguage);
     }
   }
+
+  /**
+   * Set the language for parsing
+   * Allows reusing a single parser instance for multiple languages
+   */
+  public setLanguage = (language: Language): void => {
+    this.language = language;
+    const parserLanguage = LANGUAGE_PARSERS[language];
+    if (parserLanguage) {
+      this.parser.setLanguage(parserLanguage);
+    }
+  };
 
   /**
    * Parse source code and extract syntax nodes

@@ -5,33 +5,39 @@
  * transactions, and error handling. Optimizes inserts using PostgreSQL bulk operations.
  */
 
-import { type DatabaseClient } from '@database/client';
+import type pg from 'pg';
+
+import { CindexError } from '@utils/errors';
 import { logger } from '@utils/logger';
+import { type ParsedAPIEndpoint } from '@/types/api-parsing';
 import {
   type CodeChunk,
   type CodeFile,
   type CodeSymbol,
-  type Repository,
-  type Workspace,
-  type Service,
-  type WorkspaceAlias,
   type CrossRepoDependency,
+  type Repository,
+  type Service,
+  type Workspace,
+  type WorkspaceAlias,
   type WorkspaceDependency,
 } from '@/types/database';
 import { type BatchInsertResult } from '@/types/indexing';
-import { type ParsedAPIEndpoint } from '@/types/api-parsing';
 
 /**
  * Error thrown during database write operations
  */
-export class DatabaseWriteError extends Error {
+export class DatabaseWriteError extends CindexError {
   constructor(
     public readonly table: string,
     public readonly context: string,
-    public readonly cause?: Error
+    cause?: Error
   ) {
-    super(`Database write failed for ${table}: ${context}`);
-    this.name = 'DatabaseWriteError';
+    super(
+      `Database write failed for ${table}: ${context}`,
+      'DB_WRITE_ERROR',
+      { table, context, cause: cause?.message },
+      cause ? `Original error: ${cause.message}` : undefined
+    );
   }
 }
 
@@ -39,7 +45,9 @@ export class DatabaseWriteError extends Error {
  * Database writer with batch optimization
  */
 export class DatabaseWriter {
-  constructor(private readonly dbClient: DatabaseClient) {}
+  private static readonly DEFAULT_BATCH_SIZE = 100;
+
+  constructor(private readonly pool: pg.Pool) {}
 
   /**
    * Insert or update file metadata
@@ -74,7 +82,7 @@ export class DatabaseWriter {
     `;
 
     try {
-      await this.dbClient.query(sql, [
+      await this.pool.query(sql, [
         file.repo_path,
         file.file_path,
         file.file_summary,
@@ -93,7 +101,8 @@ export class DatabaseWriter {
 
       logger.debug('File inserted', { file: file.file_path });
     } catch (error) {
-      throw new DatabaseWriteError('code_files', file.file_path, error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new DatabaseWriteError('code_files', file.file_path, err);
     }
   };
 
@@ -107,7 +116,10 @@ export class DatabaseWriter {
    * @param batchSize - Number of chunks per batch (default: 100)
    * @returns Batch insert result with stats
    */
-  public insertChunks = async (chunks: Omit<CodeChunk, 'id'>[], batchSize = 100): Promise<BatchInsertResult> => {
+  public insertChunks = async (
+    chunks: Omit<CodeChunk, 'id'>[],
+    batchSize = DatabaseWriter.DEFAULT_BATCH_SIZE
+  ): Promise<BatchInsertResult> => {
     logger.info('Batch inserting chunks', {
       total: chunks.length,
       batch_size: batchSize,
@@ -205,7 +217,7 @@ export class DatabaseWriter {
       ON CONFLICT DO NOTHING
     `;
 
-    await this.dbClient.query(sql, values);
+    await this.pool.query(sql, values);
   };
 
   /**
@@ -217,7 +229,10 @@ export class DatabaseWriter {
    * @param batchSize - Number of symbols per batch (default: 100)
    * @returns Batch insert result with stats
    */
-  public insertSymbols = async (symbols: Omit<CodeSymbol, 'id'>[], batchSize = 100): Promise<BatchInsertResult> => {
+  public insertSymbols = async (
+    symbols: Omit<CodeSymbol, 'id'>[],
+    batchSize = DatabaseWriter.DEFAULT_BATCH_SIZE
+  ): Promise<BatchInsertResult> => {
     logger.info('Batch inserting symbols', {
       total: symbols.length,
       batch_size: batchSize,
@@ -309,7 +324,7 @@ export class DatabaseWriter {
       ON CONFLICT DO NOTHING
     `;
 
-    await this.dbClient.query(sql, values);
+    await this.pool.query(sql, values);
   };
 
   /**
@@ -345,7 +360,7 @@ export class DatabaseWriter {
     `;
 
     try {
-      await this.dbClient.query(sql, [
+      await this.pool.query(sql, [
         repo.repo_id,
         repo.repo_name,
         repo.repo_path,
@@ -359,7 +374,8 @@ export class DatabaseWriter {
 
       logger.debug('Repository inserted', { repo_id: repo.repo_id });
     } catch (error) {
-      throw new DatabaseWriteError('repositories', repo.repo_id, error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new DatabaseWriteError('repositories', repo.repo_id, err);
     }
   };
 
@@ -374,7 +390,7 @@ export class DatabaseWriter {
    */
   public insertWorkspaces = async (
     workspaces: Omit<Workspace, 'id' | 'indexed_at'>[],
-    batchSize = 100
+    batchSize = DatabaseWriter.DEFAULT_BATCH_SIZE
   ): Promise<BatchInsertResult> => {
     logger.info('Batch inserting workspaces', {
       total: workspaces.length,
@@ -476,7 +492,7 @@ export class DatabaseWriter {
         indexed_at = NOW()
     `;
 
-    await this.dbClient.query(sql, values);
+    await this.pool.query(sql, values);
   };
 
   /**
@@ -488,7 +504,7 @@ export class DatabaseWriter {
    */
   public insertWorkspaceAliases = async (
     aliases: Omit<WorkspaceAlias, 'id'>[],
-    batchSize = 100
+    batchSize = DatabaseWriter.DEFAULT_BATCH_SIZE
   ): Promise<BatchInsertResult> => {
     logger.info('Batch inserting workspace aliases', {
       total: aliases.length,
@@ -576,7 +592,7 @@ export class DatabaseWriter {
       ON CONFLICT (repo_id, alias_pattern, resolved_path) DO NOTHING
     `;
 
-    await this.dbClient.query(sql, values);
+    await this.pool.query(sql, values);
   };
 
   /**
@@ -588,7 +604,7 @@ export class DatabaseWriter {
    */
   public insertWorkspaceDependencies = async (
     dependencies: Omit<WorkspaceDependency, 'id' | 'indexed_at'>[],
-    batchSize = 100
+    batchSize = DatabaseWriter.DEFAULT_BATCH_SIZE
   ): Promise<BatchInsertResult> => {
     logger.info('Batch inserting workspace dependencies', {
       total: dependencies.length,
@@ -681,7 +697,7 @@ export class DatabaseWriter {
         indexed_at = NOW()
     `;
 
-    await this.dbClient.query(sql, values);
+    await this.pool.query(sql, values);
   };
 
   /**
@@ -693,7 +709,7 @@ export class DatabaseWriter {
    */
   public insertServices = async (
     services: Omit<Service, 'id' | 'indexed_at'>[],
-    batchSize = 100
+    batchSize = DatabaseWriter.DEFAULT_BATCH_SIZE
   ): Promise<BatchInsertResult> => {
     logger.info('Batch inserting services', {
       total: services.length,
@@ -790,7 +806,7 @@ export class DatabaseWriter {
         indexed_at = NOW()
     `;
 
-    await this.dbClient.query(sql, values);
+    await this.pool.query(sql, values);
   };
 
   /**
@@ -802,7 +818,7 @@ export class DatabaseWriter {
    */
   public insertCrossRepoDependencies = async (
     dependencies: Omit<CrossRepoDependency, 'id' | 'indexed_at'>[],
-    batchSize = 100
+    batchSize = DatabaseWriter.DEFAULT_BATCH_SIZE
   ): Promise<BatchInsertResult> => {
     logger.info('Batch inserting cross-repo dependencies', {
       total: dependencies.length,
@@ -898,7 +914,7 @@ export class DatabaseWriter {
         indexed_at = NOW()
     `;
 
-    await this.dbClient.query(sql, values);
+    await this.pool.query(sql, values);
   };
 
   /**
@@ -923,14 +939,15 @@ export class DatabaseWriter {
     `;
 
     try {
-      await this.dbClient.query(sql, [JSON.stringify(endpoints), serviceId]);
+      await this.pool.query(sql, [JSON.stringify(endpoints), serviceId]);
 
       logger.debug('Service API endpoints updated', {
         service_id: serviceId,
         endpoint_count: endpoints.length,
       });
     } catch (error) {
-      throw new DatabaseWriteError('services', `update API endpoints for ${serviceId}`, error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new DatabaseWriteError('services', `update API endpoints for ${serviceId}`, err);
     }
   };
 
@@ -1002,11 +1019,11 @@ export class DatabaseWriter {
 
     try {
       // Delete in order to respect foreign key constraints
-      const symbolsResult = await this.dbClient.query('DELETE FROM code_symbols WHERE repo_path = $1', [repoPath]);
+      const symbolsResult = await this.pool.query('DELETE FROM code_symbols WHERE repo_path = $1', [repoPath]);
 
-      const chunksResult = await this.dbClient.query('DELETE FROM code_chunks WHERE repo_path = $1', [repoPath]);
+      const chunksResult = await this.pool.query('DELETE FROM code_chunks WHERE repo_path = $1', [repoPath]);
 
-      const filesResult = await this.dbClient.query('DELETE FROM code_files WHERE repo_path = $1', [repoPath]);
+      const filesResult = await this.pool.query('DELETE FROM code_files WHERE repo_path = $1', [repoPath]);
 
       const deleted = {
         files: filesResult.rowCount ?? 0,
@@ -1021,7 +1038,8 @@ export class DatabaseWriter {
 
       return deleted;
     } catch (error) {
-      throw new DatabaseWriteError('repository deletion', repoPath, error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new DatabaseWriteError('repository deletion', repoPath, err);
     }
   };
 }
@@ -1029,9 +1047,9 @@ export class DatabaseWriter {
 /**
  * Create database writer instance
  *
- * @param dbClient - Database client for query execution
+ * @param pool - PostgreSQL connection pool for query execution
  * @returns Initialized DatabaseWriter
  */
-export const createDatabaseWriter = (dbClient: DatabaseClient): DatabaseWriter => {
-  return new DatabaseWriter(dbClient);
+export const createDatabaseWriter = (pool: pg.Pool): DatabaseWriter => {
+  return new DatabaseWriter(pool);
 };

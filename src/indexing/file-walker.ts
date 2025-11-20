@@ -296,7 +296,7 @@ export class FileWalker {
       // Always include README.md at root
       const isRootReadme = basename.toLowerCase() === 'readme.md' && path.dirname(relativePath) === '.';
 
-      if (!isRootReadme && !this.options.include_markdown) {
+      if (!isRootReadme && !this.options.includeMarkdown) {
         logger.debug('Skipping markdown file', { path: relativePath });
         return null;
       }
@@ -316,12 +316,13 @@ export class FileWalker {
       // Count lines
       const lineCount = this.countLines(content);
 
-      // Check file size limit
-      if (lineCount > this.options.max_file_size) {
+      // Check file size limit (default: 5000 lines)
+      const maxFileSize = this.options.maxFileSize ?? 5000;
+      if (lineCount > maxFileSize) {
         logger.warn('Skipping large file', {
           path: relativePath,
           lines: lineCount,
-          max: this.options.max_file_size,
+          max: maxFileSize,
         });
         this.stats.excluded_size++;
         return null;
@@ -347,8 +348,8 @@ export class FileWalker {
       };
 
       // Add multi-project context if enabled
-      if (this.options.enable_multi_repo && this.options.repo_id) {
-        discoveredFile.repo_id = this.options.repo_id;
+      if (this.options.enable_multi_repo && this.options.repoId) {
+        discoveredFile.repo_id = this.options.repoId;
       }
 
       logger.debug('File discovered', {

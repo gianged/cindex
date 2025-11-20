@@ -239,6 +239,7 @@ export class ProgressTracker {
    */
   private createInitialStats = (): IndexingStats => {
     return {
+      // Legacy property names
       files_total: 0,
       files_processed: 0,
       files_failed: 0,
@@ -251,6 +252,11 @@ export class ProgressTracker {
       summaries_fallback: 0,
       stage: IndexingStage.Starting,
       errors: [],
+
+      // Required aliases for MCP tools
+      files_indexed: 0,
+      chunks_created: 0,
+      indexing_time_ms: 0,
     };
   };
 

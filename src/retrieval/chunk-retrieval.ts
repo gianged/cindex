@@ -6,6 +6,7 @@
  */
 
 import { type DatabaseClient } from '@database/client';
+import { type ScopeFilter } from '@retrieval/scope-filter';
 import { logger } from '@utils/logger';
 import { type CindexConfig } from '@/types/config';
 import { type QueryEmbedding, type RelevantChunk, type RelevantFile } from '@/types/retrieval';
@@ -37,10 +38,14 @@ interface ChunkRetrievalRow {
  * Uses higher similarity threshold (0.75 vs 0.70) for more precise results.
  * Excludes file_summary chunks to avoid redundancy.
  *
+ * Note: Scope filtering is applied through relevantFiles (already filtered in Stage 2),
+ * so scopeFilter is mainly used for logging and future direct database queries.
+ *
  * @param queryEmbedding - Query embedding from processQuery()
  * @param relevantFiles - Top files from Stage 1 (retrieveFiles)
  * @param config - cindex configuration
  * @param db - Database client
+ * @param scopeFilter - Scope filter from Stage 0 (optional, null for single-repo mode)
  * @param maxChunks - Maximum chunks to return (default: 100, before dedup)
  * @param chunkSimilarityThreshold - Minimum similarity score (default: 0.75, higher than Stage 1)
  * @returns Array of relevant chunks ranked by similarity
@@ -50,6 +55,7 @@ export const retrieveChunks = async (
   relevantFiles: RelevantFile[],
   _config: CindexConfig,
   db: DatabaseClient,
+  scopeFilter: ScopeFilter | null = null,
   maxChunks = 100,
   chunkSimilarityThreshold?: number
 ): Promise<RelevantChunk[]> => {
@@ -71,6 +77,7 @@ export const retrieveChunks = async (
     filesProvided: filePaths.length,
     maxChunks,
     threshold,
+    scopeFilter: scopeFilter ? `${scopeFilter.mode} (${scopeFilter.repo_ids.length.toString()} repos)` : 'inherited',
   });
 
   // Convert embedding array to pgvector format

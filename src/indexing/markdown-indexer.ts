@@ -62,10 +62,23 @@ export interface MarkdownParseResult {
 }
 
 /**
- * Parse front matter from markdown file (YAML-style)
+ * Parse YAML-style front matter from markdown content
  *
- * @param content - Markdown content
- * @returns Front matter object and content without front matter
+ * Extracts metadata from YAML front matter block (delimited by ---) at the
+ * beginning of a markdown file. Parses simple key: value pairs and returns
+ * both the parsed metadata object and the content with front matter removed.
+ *
+ * Supported format:
+ * ```
+ * ---
+ * title: Document Title
+ * author: Author Name
+ * ---
+ * # Content starts here
+ * ```
+ *
+ * @param content - Raw markdown content with optional front matter
+ * @returns Object containing parsed metadata (undefined if no front matter) and content without front matter
  */
 const parseFrontMatter = (content: string): { metadata: Record<string, string> | undefined; content: string } => {
   const frontMatterRegex = /^---\n([\s\S]*?)\n---\n/;
@@ -98,10 +111,20 @@ const parseFrontMatter = (content: string): { metadata: Record<string, string> |
 };
 
 /**
- * Extract code blocks from markdown content
+ * Extract fenced code blocks from markdown content
  *
- * @param content - Markdown content
- * @returns Array of code blocks
+ * Parses markdown content to find all fenced code blocks (```language...```)
+ * and extracts their language identifier, code content, and line numbers.
+ * Handles missing language tags (defaults to 'text') and preserves original
+ * formatting for accurate line number tracking.
+ *
+ * Example input:
+ * ```typescript
+ * const foo = 'bar';
+ * ```
+ *
+ * @param content - Raw markdown content with code fences
+ * @returns Array of code block objects with language, code, and line positions
  */
 const extractCodeBlocks = (content: string): MarkdownCodeBlock[] => {
   const blocks: MarkdownCodeBlock[] = [];
@@ -150,10 +173,20 @@ const extractCodeBlocks = (content: string): MarkdownCodeBlock[] => {
 };
 
 /**
- * Extract sections from markdown content
+ * Extract sections from markdown content grouped by headings
  *
- * @param content - Markdown content
- * @returns Array of sections
+ * Parses markdown content and splits it into sections based on ATX-style
+ * headings (# Heading). Each section includes the heading text, heading level
+ * (1-6), content between this heading and the next, line numbers, and all
+ * code blocks contained within the section.
+ *
+ * Sections are useful for:
+ * - Preserving document structure in search results
+ * - Providing context for code blocks
+ * - Chunking large markdown files for embedding
+ *
+ * @param content - Raw markdown content with headings
+ * @returns Array of section objects with headings, content, and embedded code blocks
  */
 const extractSections = (content: string): MarkdownSection[] => {
   const sections: MarkdownSection[] = [];

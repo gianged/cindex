@@ -3,6 +3,8 @@
  * Each error includes user-friendly messages and suggested resolutions
  */
 
+import { logger } from '@utils/logger';
+
 /**
  * Base error class for cindex
  */
@@ -81,6 +83,20 @@ export class DatabaseConnectionError extends CindexError {
       `Cannot connect to PostgreSQL database '${database}' at ${host}:${String(port)}`,
       { host, port, database, cause: cause?.message },
       `Check that:\n1. PostgreSQL is running on ${host}:${String(port)}\n2. Database '${database}' exists (create with: createdb ${database})\n3. Credentials are correct (POSTGRES_USER, POSTGRES_PASSWORD)\n4. Firewall allows connections`
+    );
+  }
+}
+
+/**
+ * Database not connected error
+ */
+export class DatabaseNotConnectedError extends CindexError {
+  constructor(operation: string, context?: string) {
+    super(
+      `Database not connected${context ? ': ' + context : ''}`,
+      'DB_NOT_CONNECTED',
+      { operation, context },
+      `Call connect() before attempting ${operation}. Ensure the database connection is established before performing any operations.`
     );
   }
 }
@@ -258,7 +274,7 @@ export const retryWithBackoff = async <T>(
       }
 
       const delayMs = baseDelayMs * Math.pow(2, attempt);
-      console.error(
+      logger.warn(
         `[RETRY] ${operationName} failed (attempt ${String(attempt + 1)}/${String(maxRetries)}), retrying in ${String(delayMs)}ms...`
       );
       await new Promise((resolve) => setTimeout(resolve, delayMs));

@@ -5,9 +5,10 @@
 import { type RepositoryType } from '@/types/database';
 
 /**
- * Indexing options for a repository
+ * Indexing strategy configuration for a repository type
+ * This defines which indexing steps to perform based on repository type
  */
-export interface IndexingOptions {
+export interface RepositoryIndexingStrategy {
   // Workspace detection
   detect_workspaces: boolean; // Detect monorepo workspaces
   resolve_workspace_aliases: boolean; // Resolve @workspace/* imports
@@ -34,7 +35,7 @@ export interface IndexingOptions {
 /**
  * Default indexing strategy for each repository type
  */
-const INDEXING_STRATEGIES: Record<RepositoryType, IndexingOptions> = {
+const INDEXING_STRATEGIES: Record<RepositoryType, RepositoryIndexingStrategy> = {
   // Monolithic: Standard indexing for single-application repositories
   monolithic: {
     detect_workspaces: false,
@@ -137,12 +138,12 @@ const INDEXING_STRATEGIES: Record<RepositoryType, IndexingOptions> = {
  *
  * @param repoType - Repository type
  * @param overrides - Optional overrides to strategy
- * @returns Indexing options
+ * @returns Indexing strategy configuration
  */
 export const getIndexingStrategy = (
   repoType: RepositoryType,
-  overrides?: Partial<IndexingOptions>
-): IndexingOptions => {
+  overrides?: Partial<RepositoryIndexingStrategy>
+): RepositoryIndexingStrategy => {
   const baseStrategy = INDEXING_STRATEGIES[repoType];
 
   if (!overrides) {

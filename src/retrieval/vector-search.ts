@@ -11,6 +11,7 @@ import {
   type RepositoryType,
   type RepoTypeQueryResult,
 } from '@/types/database';
+import { logger } from '@utils/logger';
 
 /**
  * Search scope options
@@ -141,7 +142,10 @@ const traverseDependencyGraph = async (
       }
     } catch (error) {
       // Log error but continue traversal
-      console.error(`Failed to query cross-repo dependencies for ${currentRepoId}:`, error);
+      logger.error('Failed to query cross-repo dependencies', {
+        repoId: currentRepoId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     // Query workspace dependencies (for monorepos)

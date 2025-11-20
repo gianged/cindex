@@ -4,6 +4,7 @@
  */
 
 import { ConfigurationError } from '@utils/errors';
+import { logger } from '@utils/logger';
 import { DEFAULT_CONFIG, ENV_VARS, type CindexConfig } from '@/types/config';
 
 /**
@@ -93,22 +94,6 @@ const parseEnvBool = (key: string, defaultValue: boolean): boolean => {
 
   throw ConfigurationError.invalidValue(key, value, 'true/false, 1/0, or yes/no');
 };
-
-/**
- * Parse array from environment variable (comma-separated)
- * Currently unused but reserved for future feature flags that accept arrays
- */
-// const parseEnvArray = (key: string, defaultValue: string[]): string[] => {
-//   const value = getEnv(key);
-//   if (!value) {
-//     return defaultValue;
-//   }
-//
-//   return value
-//     .split(',')
-//     .map((s) => s.trim())
-//     .filter((s) => s.length > 0);
-// };
 
 /**
  * Load and validate configuration from environment variables
@@ -286,8 +271,8 @@ export const validateConfig = (config: CindexConfig): void => {
   // Validate HNSW parameters
   if (config.performance.hnsw_ef_search < config.performance.hnsw_ef_construction) {
     // This is just a warning, not an error
-    console.warn(
-      `Warning: HNSW_EF_SEARCH (${String(config.performance.hnsw_ef_search)}) < HNSW_EF_CONSTRUCTION (${String(config.performance.hnsw_ef_construction)}). This may reduce search accuracy.`
+    logger.warn(
+      `HNSW_EF_SEARCH (${String(config.performance.hnsw_ef_search)}) < HNSW_EF_CONSTRUCTION (${String(config.performance.hnsw_ef_construction)}). This may reduce search accuracy.`
     );
   }
 };

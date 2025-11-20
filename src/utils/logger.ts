@@ -44,42 +44,42 @@ class Logger {
   /**
    * Set log level
    */
-  setLevel(level: LogLevel): void {
+  setLevel = (level: LogLevel): void => {
     this.config.level = level;
-  }
+  };
 
   /**
    * Enable/disable colored output
    */
-  setColors(enabled: boolean): void {
+  setColors = (enabled: boolean): void => {
     this.config.enableColors = enabled;
-  }
+  };
 
   /**
    * Enable/disable timestamps
    */
-  setTimestamps(enabled: boolean): void {
+  setTimestamps = (enabled: boolean): void => {
     this.config.enableTimestamps = enabled;
-  }
+  };
 
   /**
    * Check if a log level should be logged
    */
-  private shouldLog(level: LogLevel): boolean {
+  private shouldLog = (level: LogLevel): boolean => {
     return LOG_LEVELS[level] >= LOG_LEVELS[this.config.level];
-  }
+  };
 
   /**
    * Format timestamp
    */
-  private formatTimestamp(): string {
+  private formatTimestamp = (): string => {
     return new Date().toISOString();
-  }
+  };
 
   /**
    * Colorize log level
    */
-  private colorizeLevel(level: LogLevel): string {
+  private colorizeLevel = (level: LogLevel): string => {
     if (!this.config.enableColors) {
       return level;
     }
@@ -94,12 +94,12 @@ class Logger {
       case 'ERROR':
         return chalk.red(level);
     }
-  }
+  };
 
   /**
    * Format log message
    */
-  private formatMessage(level: LogLevel, message: string, context?: LogContext): string {
+  private formatMessage = (level: LogLevel, message: string, context?: LogContext): string => {
     const parts: string[] = [];
 
     // Timestamp
@@ -120,63 +120,63 @@ class Logger {
     }
 
     return parts.join(' ');
-  }
+  };
 
   /**
    * Write log to stderr
    */
-  private write(level: LogLevel, message: string, context?: LogContext): void {
+  private write = (level: LogLevel, message: string, context?: LogContext): void => {
     if (!this.shouldLog(level)) {
       return;
     }
 
     const formatted = this.formatMessage(level, message, context);
     console.error(formatted);
-  }
+  };
 
   /**
    * Log debug message
    */
-  debug(message: string, context?: LogContext): void {
+  debug = (message: string, context?: LogContext): void => {
     this.write('DEBUG', message, context);
-  }
+  };
 
   /**
    * Log info message
    */
-  info(message: string, context?: LogContext): void {
+  info = (message: string, context?: LogContext): void => {
     this.write('INFO', message, context);
-  }
+  };
 
   /**
    * Log warning message
    */
-  warn(message: string, context?: LogContext): void {
+  warn = (message: string, context?: LogContext): void => {
     this.write('WARN', message, context);
-  }
+  };
 
   /**
    * Log error message
    */
-  error(message: string, context?: LogContext): void {
+  error = (message: string, context?: LogContext): void => {
     this.write('ERROR', message, context);
-  }
+  };
 
   /**
    * Log error with stack trace
    */
-  errorWithStack(message: string, error: Error, context?: LogContext): void {
+  errorWithStack = (message: string, error: Error, context?: LogContext): void => {
     this.error(message, {
       ...context,
       error: error.message,
       stack: error.stack,
     });
-  }
+  };
 
   /**
    * Log startup message with banner
    */
-  startup(config: { version: string; models: string[] }): void {
+  startup = (config: { version: string; models: string[] }): void => {
     if (!this.shouldLog('INFO')) {
       return;
     }
@@ -193,32 +193,32 @@ ZPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP]
     this.info(`Embedding Model: ${config.models[0]}`);
     this.info(`Summary Model: ${config.models[1]}`);
     this.info('Server starting...');
-  }
+  };
 
   /**
    * Log shutdown message
    */
-  shutdown(): void {
+  shutdown = (): void => {
     this.info('Server shutting down gracefully...');
-  }
+  };
 
   /**
    * Log connection established
    */
-  connected(service: string, details?: LogContext): void {
+  connected = (service: string, details?: LogContext): void => {
     this.info(`Connected to ${service}`, details);
-  }
+  };
 
   /**
    * Log health check
    */
-  healthCheck(service: string, status: 'OK' | 'FAILED', details?: LogContext): void {
+  healthCheck = (service: string, status: 'OK' | 'FAILED', details?: LogContext): void => {
     if (status === 'OK') {
       this.info(`Health check: ${service} OK`, details);
     } else {
       this.error(`Health check: ${service} FAILED`, details);
     }
-  }
+  };
 }
 
 /**

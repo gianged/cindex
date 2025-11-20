@@ -6,6 +6,7 @@
  */
 
 import { type DatabaseClient } from '@database/client';
+import { type ScopeFilter } from '@retrieval/scope-filter';
 import { logger } from '@utils/logger';
 import { type CindexConfig } from '@/types/config';
 import { type QueryEmbedding, type RelevantFile } from '@/types/retrieval';
@@ -47,6 +48,7 @@ interface FileRetrievalRow {
  * @param queryEmbedding - Query embedding from processQuery()
  * @param config - cindex configuration
  * @param db - Database client
+ * @param scopeFilter - Scope filter from Stage 0 (optional, null for single-repo mode)
  * @param maxFiles - Maximum files to return (default: 15)
  * @param similarityThreshold - Minimum similarity score (default: 0.70)
  * @returns Array of relevant files ranked by similarity
@@ -55,6 +57,7 @@ export const retrieveFiles = async (
   queryEmbedding: QueryEmbedding,
   config: CindexConfig,
   db: DatabaseClient,
+  scopeFilter: ScopeFilter | null = null,
   maxFiles = 15,
   similarityThreshold?: number
 ): Promise<RelevantFile[]> => {
@@ -67,12 +70,40 @@ export const retrieveFiles = async (
     queryType: queryEmbedding.query_type,
     maxFiles,
     threshold,
+    scopeFilter: scopeFilter ? `${scopeFilter.mode} (${scopeFilter.repo_ids.length.toString()} repos)` : 'none',
   });
 
   // Convert embedding array to pgvector format
   const embeddingVector = `[${queryEmbedding.embedding.join(',')}]`;
 
-  // SQL query with pgvector cosine distance
+  // Build WHERE clauses for scope filtering
+  const whereClauses: string[] = ['1 - (summary_embedding <=> $1::vector) > $2'];
+  const params: unknown[] = [embeddingVector, threshold];
+  let paramIndex = 3;
+
+  // Apply scope filtering if provided
+  if (scopeFilter && scopeFilter.repo_ids.length > 0) {
+    whereClauses.push(`repo_id = ANY($${paramIndex.toString()}::text[])`);
+    params.push(scopeFilter.repo_ids);
+    paramIndex++;
+  }
+
+  if (scopeFilter && scopeFilter.workspace_ids.length > 0) {
+    whereClauses.push(`workspace_id = ANY($${paramIndex.toString()}::text[])`);
+    params.push(scopeFilter.workspace_ids);
+    paramIndex++;
+  }
+
+  if (scopeFilter && scopeFilter.service_ids.length > 0) {
+    whereClauses.push(`service_id = ANY($${paramIndex.toString()}::text[])`);
+    params.push(scopeFilter.service_ids);
+    paramIndex++;
+  }
+
+  // Add maxFiles as final parameter
+  params.push(maxFiles);
+
+  // SQL query with pgvector cosine distance and scope filtering
   // IMPORTANT: Use ORDER BY embedding <=> query for index optimization
   // Reference: docs/syntax.md#L389-L393 (pgvector distance operators)
   const query = `
@@ -89,12 +120,10 @@ export const retrieveFiles = async (
       service_id,
       repo_id
     FROM code_files
-    WHERE 1 - (summary_embedding <=> $1::vector) > $2
+    WHERE ${whereClauses.join(' AND ')}
     ORDER BY summary_embedding <=> $1::vector
-    LIMIT $3
+    LIMIT $${paramIndex.toString()}
   `;
-
-  const params = [embeddingVector, threshold, maxFiles];
 
   try {
     const result = await db.query<FileRetrievalRow>(query, params);

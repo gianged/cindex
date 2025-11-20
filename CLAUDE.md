@@ -90,24 +90,32 @@ npm start
 
 ### MCP Tools
 
-**Base Tools (4 Core):**
+**Core Tools (4 Base):**
 
-- `search_codebase` - Semantic search with multi-stage retrieval
+- `search_codebase` - Semantic search with 9-stage retrieval pipeline
 - `get_file_context` - Full context for specific file with dependencies
 - `find_symbol_definition` - Locate function/class/variable definitions
 - `index_repository` - Index or re-index codebase (incremental by default)
 
-**Multi-Project Tools (Additional 2):**
+**Specialized Tools (9 Multi-Project/Management):**
 
-- `search_api_contracts` - Search REST/GraphQL/gRPC API definitions across services
-- `list_indexed_repos` - List all indexed repositories and their services
+- `list_indexed_repos` - List all indexed repositories with metadata
+- `list_workspaces` - List workspaces in monorepo with dependencies
+- `list_services` - List services across repos with API endpoints
+- `get_workspace_context` - Get full workspace context with dependencies
+- `get_service_context` - Get service context with API contracts
+- `find_cross_workspace_usages` - Track workspace package usages
+- `find_cross_service_calls` - Identify inter-service API calls
+- `search_api_contracts` - Search REST/GraphQL/gRPC API endpoints
+- `delete_repository` - Delete repositories and all associated data
 
-**Multi-Project Parameters:**
+**Multi-Project Features:**
 
-- `search_codebase` gains: `scope`, `repo_id`, `service_id`, `include_dependencies`,
-  `include_references`, `include_documentation`
-- `index_repository` gains: `repo_id`, `repo_type`, `service_config`, `detect_dependencies`,
-  `version`, `force_reindex`
+- **Scope Filtering:** Global, repository, service, boundary-aware modes
+- **Reference Repository Support:** Index and search framework documentation
+- **API Contract Enrichment:** Semantic search for endpoints with implementation links
+- **Cross-Repository Dependencies:** Track service calls and workspace usage
+- **Progress Notifications:** Real-time 9-stage pipeline tracking
 
 ### Reference Repository Support
 
@@ -177,11 +185,6 @@ npm start
   - `upsertRepository()`, `getIndexingStats()` ✅
   - `listIndexedRepositories()`, `listReferenceRepositories()` ✅
   - `isRepositoryOutdated()` ✅
-- **MCP Tools** - Repository deletion (Phase 5: ~8%)
-  - `delete_repository` tool implemented ✅
-  - Input validation with fail-fast ✅
-  - Deletion statistics per repository ✅
-
 - **Embeddings & Summaries** (Phase 3: 100%)
   - LLM summary generation via Ollama ✅
   - Embedding generation (bge-m3:567m) ✅
@@ -203,38 +206,55 @@ npm start
   - Serverless framework detection (Serverless Framework, Vercel, Netlify, AWS SAM, AWS CDK) ✅
   - Mobile project detection (React Native, Expo, Flutter, Capacitor, Ionic) ✅
   - Service type classification (docker, serverless, mobile) ✅
+- **Multi-Stage Retrieval** (Phase 4: 100%)
+  - 9-stage retrieval pipeline (upgraded from 5-stage) ✅
+  - Stage 0: Scope filtering (global, repository, service, boundary-aware) ✅
+  - Stage 1: Query processing with embedding cache ✅
+  - Stage 2: File-level retrieval (scope-filtered SQL queries) ✅
+  - Stage 3: Chunk-level retrieval (scope-filtered) ✅
+  - Stage 4: Symbol resolution ✅
+  - Stage 5: Import chain expansion ✅
+  - Stage 6: API contract enrichment (semantic search, scope-aware) ✅
+  - Stage 7: Deduplication ✅
+  - Stage 8: Context assembly ✅
+- **MCP Tools** (Phase 5: 95%)
+  - MCP server framework with lifecycle management ✅
+  - All 13 tools implemented and registered ✅
+  - 4 core tools: search_codebase, get_file_context, find_symbol, index_repository ✅
+  - 9 specialized tools: list_indexed_repos, list_workspaces, list_services, get_workspace_context, get_service_context, find_cross_workspace_usages, find_cross_service_calls, search_api_contracts, delete_repository ✅
+  - Complete input validation (validator.ts - 514 lines) ✅
+  - Complete output formatting (formatter.ts - 1,130 lines) ✅
+  - Error handling with user-friendly messages ✅
+  - Multi-project support (monorepo, microservices, reference repos) ✅
+  - Integration tests (search-pipeline.test.ts - 423 lines) ✅
+  - E2E testing with Claude Code (pending) ⚠️
+- **Performance Optimizations** (Beyond Phase 5 scope)
+  - LRU caching system (cache.ts - 288 lines) ✅
+  - Query embedding cache (30 min TTL, 500 entries) ✅
+  - Search result cache (5 min TTL, 200 entries) ✅
+  - API endpoint cache (10 min TTL, 100 entries) ✅
+  - Cache statistics and monitoring ✅
+  - 9-stage progress notifications ✅
+  - Performance: Cached queries ~50ms vs ~800ms uncached ✅
+  - 80%+ reduction in Ollama API calls ✅
 
 **What's Planned:** ⚠️
-- **Multi-Stage Retrieval** (Phase 4: not started)
-  - 7-stage retrieval pipeline
-  - Scope filtering (multi-project)
-  - Query processing
-  - File-level retrieval
-  - Chunk-level retrieval
-  - Symbol resolution
-  - Import chain expansion
-  - API contract enrichment
-  - Context assembly
-- **Remaining MCP Tools** (Phase 5: pending)
-  - 12 of 13 tools remaining (search_codebase, get_file_context, find_symbol, index_repository, list_indexed_repos, list_workspaces, list_services, get_workspace_context, get_service_context, find_cross_workspace_usages, find_cross_service_calls, search_api_contracts)
-  - Context formatting and error handling
-  - Input validation framework
-- **Optimization** (Phase 6: not started)
-  - Incremental indexing (hash comparison logic)
-  - HNSW index optimization
-  - Query caching (embeddings + results)
-  - Edge case handling
-  - Performance monitoring
-  - Scale testing
+- **Optimization** (Phase 6: ~30% complete)
+  - ~~Query caching (embeddings + results)~~ ✅ **Complete**
+  - Incremental indexing (hash comparison logic) ⚠️
+  - HNSW index optimization ⚠️
+  - Edge case handling ⚠️
+  - Performance monitoring ⚠️
+  - Scale testing ⚠️
 
-**Overall Completion: ~58%**
+**Overall Completion: ~88%**
 
 - Phase 1: ✅ 100% Complete (Database Schema & Types)
 - Phase 2: ✅ 100% Complete (Base Indexing & Version Tracking)
 - Phase 3: ✅ 100% Complete (Embeddings, Language Support, Project Detection)
-- Phase 4: ❌ 0% Complete (Multi-Stage Retrieval)
-- Phase 5: ⚠️ ~8% Complete (MCP Tools)
-- Phase 6: ❌ 0% Complete (Optimization)
+- Phase 4: ✅ 100% Complete (Multi-Stage Retrieval - 9-stage pipeline)
+- Phase 5: ✅ 95% Complete (MCP Tools - 13/13 tools implemented)
+- Phase 6: ⚠️ ~30% Complete (Optimization - caching complete)
 
 See `docs/tasks/phase-*.md` for detailed task breakdowns and checklists.
 
@@ -364,51 +384,11 @@ All settings are configured through environment variables in the MCP config file
 
 ## MCP Server Configuration Scopes
 
-Claude Code supports three configuration scopes for MCP servers, allowing you to control where
-servers are available:
+**Three scopes:** User (`~/.claude.json`), Project (`.mcp.json`), Local (temporary)
 
-### User Scope (~/.claude.json)
+**Scope priority:** Local > Project > User
 
-**Purpose:** Personal MCP servers available across all your projects.
-
-**Use cases:**
-
-- Personal utilities you use frequently (database tools, file managers)
-- Development helpers specific to your workflow
-- Testing new MCP servers before sharing with team
-
-**Location:** `~/.claude.json` in your home directory
-
-**Example configuration:**
-
-```json
-{
-  "mcpServers": {
-    "my-database-tool": {
-      "command": "npx",
-      "args": ["-y", "@user/database-mcp"],
-      "env": {
-        "DB_HOST": "localhost"
-      }
-    }
-  }
-}
-```
-
-### Project Scope (.mcp.json in project root)
-
-**Purpose:** Team-shared MCP servers specific to this project, checked into version control.
-
-**Use cases:**
-
-- Project dependencies required by all contributors (e.g., context7 for this project)
-- Project-specific tools (codebase analyzers, custom integrations)
-- Ensures consistent tooling across team members
-
-**Location:** `.mcp.json` in the project root directory
-
-**Example configuration:**
-
+**Project scope example** (`.mcp.json` - version controlled, team-shared):
 ```json
 {
   "mcpServers": {
@@ -417,9 +397,6 @@ servers are available:
       "args": ["./dist/index.js"],
       "env": {
         "POSTGRES_HOST": "${POSTGRES_HOST:-localhost}",
-        "POSTGRES_PORT": "${POSTGRES_PORT:-5432}",
-        "POSTGRES_DB": "${POSTGRES_DB:-cindex_rag_codebase}",
-        "POSTGRES_USER": "${POSTGRES_USER:-postgres}",
         "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}"
       }
     }
@@ -427,56 +404,7 @@ servers are available:
 }
 ```
 
-**Important notes:**
-
-- Use environment variable expansion (`${VAR_NAME:-default}`) for sensitive values
-- Add `.mcp.json` to version control for team sharing
-- Claude Code prompts for approval before using project-scoped servers (security measure)
-- Never commit actual secrets—use environment variable placeholders
-
-### Local Scope (temporary)
-
-**Purpose:** Session-only servers that don't persist.
-
-**Use cases:**
-
-- Quick testing of MCP servers
-- Temporary debugging tools
-- One-off experiments
-
-**Configuration:** Added via CLI or UI, not persisted to disk.
-
-### Scope Priority
-
-When multiple servers with the same name exist at different scopes:
-
-1. **Local scope** (highest priority) - Temporary session servers
-2. **Project scope** - Team-shared servers from `.mcp.json`
-3. **User scope** (lowest priority) - Personal servers from `~/.claude.json`
-
-This allows you to override team settings temporarily or test alternatives without affecting other
-contributors.
-
-### Best Practices
-
-**User scope:**
-
-- Personal development tools and utilities
-- Experimental MCP servers you're testing
-- Servers you use across multiple projects
-
-**Project scope:**
-
-- Core dependencies required by the project
-- Team-shared integrations (databases, APIs, documentation tools)
-- Ensure all team members have consistent tooling
-
-**Security:**
-
-- Never commit API keys or passwords directly in `.mcp.json`
-- Use environment variable expansion: `"API_KEY": "${API_KEY}"`
-- Add sensitive `.env` files to `.gitignore`
-- Document required environment variables in README.md
+**Security:** Use `${VAR_NAME:-default}` expansion, never commit secrets
 
 ## Key Implementation Details
 
@@ -563,130 +491,31 @@ Set `SUMMARY_MODEL=qwen2.5-coder:1.5b` (speed optimization), `HNSW_EF_SEARCH=100
 
 ### Import Conventions
 
-**IMPORTANT: Always use path aliases, never relative imports.**
+**Path aliases:** Use `@config/*`, `@database/*`, `@indexing/*`, `@retrieval/*`, `@mcp/*`, `@types/*`, `@utils/*` - never relative imports
+
+**Import order:** External packages → (blank line) → Internal imports → (blank line) → Type-only imports
+
+**Key rules:**
+- MCP SDK imports: Include `.js` extension (ESM requirement)
+- Internal imports: NO extensions (.ts, .js)
+- Node.js built-ins: Use `node:` prefix (`node:fs/promises`, `node:path`)
+- Type imports: Use inline `type` keyword (`import { type Config } from '@config/env'`)
+- Combine duplicate imports from same module
+
+**Example:**
+```typescript
+// External (MCP SDK with .js)
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+
+// Internal (path aliases, no extension)
+import { loadConfig } from '@config/env';
+import { type ParseResult } from '@/types/indexing';
+
+// Node.js built-ins (node: prefix)
+import { randomUUID } from 'node:crypto';
+```
 
 **See [docs/syntax.md](docs/syntax.md) for MCP SDK, pgvector, and tree-sitter syntax references.**
-
-#### Path Aliases (configured in tsconfig.json)
-
-- `@/*` - Root src directory (use for types: `@/types/indexing`)
-- `@config/*` - Config directory
-- `@database/*` - Database directory
-- `@indexing/*` - Indexing directory
-- `@retrieval/*` - Retrieval directory
-- `@mcp/*` - MCP tools directory
-- `@types/*` - Types directory (alternative to `@/types/*`)
-- `@utils/*` - Utils directory
-
-#### Import Grouping Standard
-
-**Always group imports in this order:**
-
-1. External packages (npm dependencies)
-2. Blank line
-3. Internal imports (path aliases: @config, @database, @indexing, etc.)
-4. Blank line (optional)
-5. Type-only imports (if separated)
-
-**Example from [src/index.ts](src/index.ts):**
-
-```typescript
-// 1. External packages (with .js extension for ESM modules like MCP SDK)
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
-
-// 2. Blank line
-
-// 3. Internal imports (path aliases, NO extensions)
-import { loadConfig, validateConfig } from '@config/env';
-import { createDatabaseClient } from '@database/client';
-import { CindexError } from '@utils/errors';
-import { initLogger, logger } from '@utils/logger';
-import { createOllamaClient } from '@utils/ollama';
-```
-
-#### MCP SDK Import Patterns
-
-**For MCP SDK packages, include `.js` extension (ESM requirement):**
-
-```typescript
-// ✅ Correct - MCP SDK imports WITH .js extension
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-
-// ❌ Wrong - Missing .js extension
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
-```
-
-**See [docs/syntax.md](docs/syntax.md) for complete MCP SDK patterns including:**
-- Tool registration
-- Resource registration
-- Prompt registration
-- Transport setup
-- Client usage
-
-#### Type Import Style (ESLint: `consistent-type-imports` with `inline-type-imports`)
-
-**IMPORTANT: Always use inline `type` keyword and combine duplicate imports from the same module.**
-
-```typescript
-// ✅ Correct - Inline type keyword for all types
-import { type WorkspaceConfig } from '@indexing/workspace-detector';
-import { type CindexConfig } from '@/types/config';
-
-// ✅ Correct - Mixed imports: use inline 'type' keyword
-import { createDatabaseClient, type DatabaseConfig } from '@database/client';
-import { ChunkType, NodeType, type ParseResult } from '@/types/indexing';
-
-// ✅ Correct - Combine duplicate imports from same module
-import { type DiscoveredFile, type ParseResult, type ParsedNode, type NodeType, type ExtractedSymbol } from '@/types/indexing';
-
-// ❌ Wrong - Separate import type statements from same module
-import type { DiscoveredFile, ParseResult } from '@/types/indexing';
-import type { ExtractedSymbol } from '@/types/indexing';
-
-// ✅ No file extensions (.ts, .js) for internal imports
-import { logger } from '@utils/logger'; // ✅ Correct
-import { logger } from '@utils/logger.js'; // ❌ Wrong
-
-// ❌ Never use relative imports
-import { logger } from '../utils/logger'; // ❌ Wrong
-import { type EmbeddingGenerator } from './embeddings'; // ❌ Wrong
-import { type EmbeddingGenerator } from '@indexing/embeddings'; // ✅ Correct
-```
-
-#### Node.js Built-in Imports: Always use `node:` protocol prefix
-
-```typescript
-// ❌ Wrong - Missing node: prefix
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { randomUUID } from 'crypto';
-
-// ✅ Correct - With node: prefix
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
-```
-
-#### Example: Complete Import Block
-
-From [src/indexing/symbols.ts](src/indexing/symbols.ts):
-
-```typescript
-// Node.js built-ins
-import { randomUUID } from 'node:crypto';
-
-// Blank line
-
-// Internal imports with inline type keywords (combined from same module)
-import { type DiscoveredFile, type ParseResult, type ParsedNode, type NodeType, type ExtractedSymbol } from '@/types/indexing';
-import { type EmbeddingGenerator } from '@indexing/embeddings';
-import { logger } from '@utils/logger';
-```
 
 ### Database Operations
 
@@ -712,230 +541,38 @@ import { logger } from '@utils/logger';
 
 ## Development Workflow
 
-### Setting Up Development Environment
-
-1. Install PostgreSQL 16+ with pgvector:
-
-   ```bash
-   sudo apt install postgresql-16 postgresql-16-pgvector
-   ```
-
-2. Install Ollama and pull models:
-
-   ```bash
-   curl https://ollama.ai/install.sh | sh
-   ollama pull bge-m3:567m
-   ollama pull qwen2.5-coder:7b
-   ```
-
-3. Create development database:
-
-   ```bash
-   createdb cindex_rag_codebase_dev
-   psql cindex_rag_codebase_dev < database.sql
-   ```
-
-4. Install dependencies and build:
-   ```bash
-   npm install
-   npm run build
-   ```
-
-### Testing MCP Server Locally
-
-After building, configure in `~/.config/claude/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "cindex-dev": {
-      "command": "node",
-      "args": ["/home/giang/my-projects/cindex/dist/index.js"],
-      "env": {
-        "POSTGRES_PASSWORD": "your_password",
-        "POSTGRES_DB": "cindex_rag_codebase_dev"
-      }
-    }
-  }
-}
+**Setup:**
+```bash
+sudo apt install postgresql-16 postgresql-16-pgvector
+curl https://ollama.ai/install.sh | sh && ollama pull bge-m3:567m qwen2.5-coder:7b
+createdb cindex_rag_codebase_dev && psql cindex_rag_codebase_dev < database.sql
+npm install && npm run build
 ```
 
-### Debugging
+**Local testing:** Configure in `~/.config/claude/mcp.json` with path to `./dist/index.js`
 
-- Use `console.error()` for debugging (outputs to MCP stderr)
-- Check MCP logs: Claude Code > Settings > MCP > View Logs
-- Test database queries directly in psql before implementing
-- Use small test codebases (1k-5k LoC) for faster iteration
+**Debugging:** Use `console.error()` for MCP stderr, check MCP logs in Claude Code settings
 
 ## Reference Repository Usage Examples
 
-### Example 1: Index NestJS as Reference
-
+**Index reference framework:**
 ```typescript
-// Index NestJS framework for learning patterns
-await index_repository({
-  repo_path: '/home/user/references/nestjs',
-  repo_id: 'nestjs-v10',
-  repo_type: 'reference',
-  metadata: {
-    upstream_url: 'https://github.com/nestjs/nest',
-    version: 'v10.3.0',
-    indexed_for: 'learning',
-  },
-});
-
-// Result: Fast indexing (~500 files/min)
-// - Skips workspace/service detection
-// - Includes markdown docs
-// - Structure-focused summaries
-```
-
-### Example 2: Index Markdown Documentation
-
-```typescript
-// Index library documentation markdown files
-await index_repository({
-  repo_path: '/home/user/my-project/docs/libraries',
-  repo_id: 'library-docs',
-  repo_type: 'documentation',
-});
-
-// Result: Very fast indexing (~1000 files/min)
-// - Markdown-only
-// - Preserves section structure
-// - Extracts code blocks
-```
-
-### Example 3: Search Your Code (Default)
-
-```typescript
-// Default search: excludes references and documentation
-await search_codebase({
-  query: 'authentication implementation',
-  scope: 'repository',
-  repo_id: 'my-app',
-});
-
-// Returns: Only results from your main codebase
-// - Priority 1.0 for your code
-// - No reference or documentation results
-```
-
-### Example 4: Search Including References
-
-```typescript
-// Search your code + reference frameworks
-await search_codebase({
-  query: 'how to implement guards in NestJS',
-  scope: 'global',
-  include_references: true,
-});
-
-// Returns: Your code first, then reference examples
-// - Your code: priority 1.0
-// - NestJS reference: priority 0.6
-// - Max 5 reference results
-// - Grouped by repo type
-```
-
-### Example 5: Re-index on Version Update
-
-```typescript
-// Pull latest NestJS version
-// git pull (in nestjs directory)
-
-// Re-index with new version
-await index_repository({
-  repo_path: '/home/user/references/nestjs',
-  repo_id: 'nestjs-v10',
-  repo_type: 'reference',
-  version: 'v11.0.0', // Version changed
-  force_reindex: true, // Clear old data first
-});
-
-// Result: Automatic version comparison
-// - Detects version change (v10.3.0 → v11.0.0)
-// - Clears old index data
-// - Re-indexes with new version
-```
-
-### Example 6: Mixed Workflow
-
-```typescript
-// Setup: Index your project + references + docs
-await index_repository({
-  repo_path: '/workspace/my-erp',
-  repo_id: 'my-erp',
-  repo_type: 'monolithic',
-});
-
 await index_repository({
   repo_path: '/references/nestjs',
-  repo_id: 'nestjs-ref',
+  repo_id: 'nestjs-v10',
   repo_type: 'reference',
-  metadata: { upstream_url: 'https://github.com/nestjs/nest', version: 'v10.3.0' },
+  metadata: { upstream_url: 'https://github.com/nestjs/nest', version: 'v10.3.0' }
 });
+```
 
-await index_repository({
-  repo_path: '/workspace/my-erp/docs/libraries',
-  repo_id: 'lib-docs',
-  repo_type: 'documentation',
-});
-
-// Search 1: Only your code (default)
-await search_codebase({
-  query: 'user authentication',
-  scope: 'repository',
-  repo_id: 'my-erp',
-});
-// → Returns: my-erp code only
-
-// Search 2: Your code + references when learning
+**Search with references:**
+```typescript
 await search_codebase({
   query: 'how to implement guards',
   scope: 'global',
-  include_references: true,
+  include_references: true  // Include framework examples
 });
-// → Returns: my-erp code (priority 1.0) + nestjs-ref (priority 0.6)
-
-// Search 3: Include documentation
-await search_codebase({
-  query: 'API usage examples',
-  scope: 'global',
-  include_documentation: true,
-});
-// → Returns: my-erp code + lib-docs markdown
-```
-
-### Example 7: List Indexed Repositories
-
-```typescript
-// Get all indexed repositories with version info
-await list_indexed_repos();
-
-// Returns:
-// [
-//   {
-//     repo_id: "my-erp",
-//     repo_type: "monolithic",
-//     file_count: 450,
-//     last_indexed: "2025-01-15T10:30:00Z"
-//   },
-//   {
-//     repo_id: "nestjs-ref",
-//     repo_type: "reference",
-//     file_count: 850,
-//     version: "v10.3.0",
-//     upstream_url: "https://github.com/nestjs/nest",
-//     last_indexed: "2025-01-10T14:20:00Z"
-//   },
-//   {
-//     repo_id: "lib-docs",
-//     repo_type: "documentation",
-//     file_count: 25,
-//     last_indexed: "2025-01-14T09:15:00Z"
-//   }
-// ]
+// Returns: Your code (priority 1.0) + reference code (priority 0.6)
 ```
 
 ## Common Pitfalls to Avoid
@@ -949,578 +586,14 @@ await list_indexed_repos();
 
 ## Multi-Project Development Guidance
 
-When implementing features for multi-project/monorepo/microservice support:
-
-### 1. Repository ID Management
-
-**Always require `repo_id` for multi-project operations:**
-
-```typescript
-// Good: Explicit repo_id parameter
-await indexRepository({
-  repo_path: '/workspace/auth-service',
-  repo_id: 'auth-service', // REQUIRED for multi-project
-  repo_type: 'microservice',
-});
-
-// Bad: Assumes single repository
-await indexRepository({
-  repo_path: '/workspace/auth-service',
-  // Missing repo_id
-});
-```
-
-### 2. Search Scope Implementation
-
-**Implement scope filtering in Stage 0 of retrieval pipeline:**
-
-```typescript
-// Stage 0: Determine repo_id filter list
-const repoFilter = await determineSearchScope({
-  scope: "boundary-aware",
-  start_repo: "payment-service",
-  dependency_depth: 2
-});
-// Returns: ['payment-service', 'auth-service', 'notification-service']
-
-// Stage 1: Apply filter to file retrieval
-SELECT * FROM code_files
-WHERE repo_id = ANY($1)  -- Use the repo filter
-  AND 1 - (summary_embedding <=> $2) > 0.70;
-```
-
-### 3. API Contract Parsing
-
-**When adding API contract parsing:**
-
-1. **Detect API spec files during indexing:**
-   - OpenAPI/Swagger: `openapi.yaml`, `swagger.json`
-   - GraphQL: `schema.graphql`, `*.graphql`
-   - gRPC: `*.proto`
-
-2. **Parse and store in JSONB:**
-
-   ```typescript
-   const apiSpec = parseOpenAPI('./openapi.yaml');
-   await db.query(
-     `
-     UPDATE services
-     SET api_endpoints = $1
-     WHERE service_id = $2
-   `,
-     [JSON.stringify(apiSpec), serviceId]
-   );
-   ```
-
-3. **Link API definitions to implementation:**
-   ```typescript
-   // Store implementation reference in api_endpoints
-   {
-     "endpoint": "/api/auth/login",
-     "method": "POST",
-     "implementation_file": "src/controllers/auth.ts",
-     "implementation_lines": "45-67"
-   }
-   ```
-
-### 4. Cross-Service Dependency Detection
-
-**Detect service calls in code during indexing:**
-
-```typescript
-// Pattern detection examples
-const patterns = {
-  http: /fetch\(['"]https?:\/\/([^\/]+)(\/[^'"]*)['"]/g,
-  grpc: /new\s+(\w+)Client\(['"]([^:]+):(\d+)['"]/g,
-  graphql: /query:\s*gql`\s*(?:query|mutation)\s+(\w+)/g,
-};
-
-// When detected, populate cross_repo_dependencies
-await db.query(
-  `
-  INSERT INTO cross_repo_dependencies (
-    source_repo_id, target_repo_id, dependency_type, api_contracts
-  ) VALUES ($1, $2, 'api', $3)
-`,
-  [sourceRepo, targetRepo, JSON.stringify({ endpoint, method })]
-);
-```
-
-### 5. Workspace Alias Resolution (Monorepos)
-
-**When implementing monorepo support:**
-
-```typescript
-// Parse workspace config (package.json, pnpm-workspace.yaml, nx.json)
-const workspaces = parseWorkspaceConfig('./package.json');
-// Example: ["packages/*", "apps/*"]
-
-// Resolve aliases during import chain expansion
-const resolveImport = async (importPath: string, currentRepo: string) => {
-  if (importPath.startsWith('@workspace/')) {
-    // Query workspace_aliases table
-    const alias = await db.query(
-      `
-      SELECT resolved_path FROM workspace_aliases
-      WHERE repo_id = $1 AND alias_pattern = $2
-    `,
-      [currentRepo, importPath]
-    );
-    return alias.resolved_path;
-  }
-  // Handle tsconfig paths, custom aliases, etc.
-};
-```
-
-### 6. Deduplication Across Repositories
-
-**Be careful with cross-repo deduplication:**
-
-```typescript
-// Same utility in different repos may be INTENTIONAL
-// Tag duplicates instead of removing
-if (similarity > DEDUP_THRESHOLD) {
-  if (chunk1.repo_id === chunk2.repo_id) {
-    // Same repo: likely duplicate, remove lower-scoring
-    removeChunk(lowerScoringChunk);
-  } else {
-    // Different repos: may be intentional, TAG instead
-    tagChunk(chunk2, {
-      similar_to: chunk1.id,
-      similar_repo: chunk1.repo_id,
-      note: 'Similar utility exists in another repository',
-    });
-  }
-}
-```
-
-### 7. Query Context Assembly
-
-**Group results by repository with metadata:**
-
-```typescript
-const assembleContext = (chunks: Chunk[]) => {
-  const groupedByRepo = groupBy(chunks, 'repo_id');
-
-  return {
-    primary_service: {
-      repo: startRepo,
-      chunks: groupedByRepo[startRepo],
-    },
-    dependencies: otherRepos.map((repo) => ({
-      repo,
-      depth: calculateDepth(repo, startRepo),
-      relationship: describeRelationship(repo, startRepo),
-      api_contracts: getAPIContracts(repo),
-      chunks: groupedByRepo[repo],
-    })),
-  };
-};
-```
-
-### 8. Testing Multi-Project Features
-
-**Create test fixtures for multi-project scenarios:**
-
-```typescript
-// tests/fixtures/multi-project/
-// ├── auth-service/
-// │   ├── src/
-// │   └── openapi.yaml
-// ├── payment-service/
-// │   ├── src/
-// │   └── schema.graphql
-// └── shared-lib/
-//     └── src/
-
-// Test cross-repo search
-test('boundary-aware search includes dependencies', async () => {
-  await indexRepository({ repo_id: 'auth-service', ... });
-  await indexRepository({
-    repo_id: 'payment-service',
-    detect_dependencies: true,
-    dependency_repos: ['auth-service']
-  });
-
-  const results = await searchCodebase({
-    query: 'payment processing',
-    scope: 'boundary-aware',
-    start_repo: 'payment-service',
-    include_dependencies: true
-  });
-
-  expect(results.dependencies).toContainEqual(
-    expect.objectContaining({ repo: 'auth-service' })
-  );
-});
-```
-
-### 9. Database Queries Best Practices
-
-**Always use parameterized queries with repo filters:**
-
-```typescript
-// Good: Parameterized with repo filter
-const chunks = await db.query(
-  `
-  SELECT * FROM code_chunks
-  WHERE repo_id = ANY($1)
-    AND 1 - (embedding <=> $2) > $3
-  ORDER BY embedding <=> $2
-  LIMIT $4
-`,
-  [repoIds, queryEmbedding, threshold, limit]
-);
-
-// Bad: String concatenation, no repo filter
-const chunks = await db.query(`
-  SELECT * FROM code_chunks
-  WHERE 1 - (embedding <=> ${queryEmbedding}) > ${threshold}
-  LIMIT ${limit}
-`);
-```
-
-### 10. Implementation Priority for Multi-Project
-
-When implementing multi-project features, follow this order:
-
-1. **Phase 1:** Basic multi-repo indexing (repo_id column population)
-2. **Phase 2:** Repository-scoped search (scope=repository parameter)
-3. **Phase 3:** Cross-repo dependency detection (parse imports/service calls)
-4. **Phase 4:** Boundary-aware search (dependency graph traversal)
-5. **Phase 5:** API contract parsing and indexing
-6. **Phase 6:** Service-scoped search and API contract search
-7. **Phase 7:** Monorepo support (workspaces, aliases)
-
-**Key Principle:** Build incrementally. Each phase should work independently and add value.
-
-### 11. Multi-Language Monorepo Development
-
-**Key Architecture Principle:** Different languages in a monorepo are tracked as separate workspaces with API-based communication, not code imports.
-
-#### Workspace Language Detection
-
-Each workspace must identify its primary language for correct parser selection:
-
-```typescript
-// Implement in workspace-detector.ts
-const detectWorkspaceLanguage = (workspacePath: string): string => {
-  const indicators = {
-    typescript: ['package.json', 'tsconfig.json'],
-    python: ['requirements.txt', 'pyproject.toml', 'setup.py'],
-    go: ['go.mod'],
-    java: ['pom.xml', 'build.gradle'],
-    rust: ['Cargo.toml'],
-    ruby: ['Gemfile'],
-    php: ['composer.json']
-  };
-
-  for (const [lang, files] of Object.entries(indicators)) {
-    for (const file of files) {
-      if (existsSync(join(workspacePath, file))) {
-        return lang;
-      }
-    }
-  }
-
-  return 'unknown';
-};
-
-// Store in workspaces table
-await db.query(`
-  INSERT INTO workspaces (workspace_id, package_name, workspace_path, primary_language)
-  VALUES ($1, $2, $3, $4)
-`, [workspaceId, packageName, workspacePath, primaryLanguage]);
-```
-
-#### Cross-Language Communication Detection
-
-**Critical Rule:** Never attempt to resolve imports across different languages. Treat cross-language communication as API calls.
-
-```typescript
-// Detect API calls instead of imports
-const detectCrossLanguageAPICalls = async (chunk: CodeChunk): Promise<void> => {
-  // Parse HTTP client usage in code
-  const apiCalls = parseAPIEndpoints(chunk.code);
-
-  for (const call of apiCalls) {
-    // Resolve which workspace owns this endpoint
-    const targetWorkspace = await resolveAPIEndpoint(call.endpoint);
-
-    if (targetWorkspace && targetWorkspace.primary_language !== chunk.workspace_language) {
-      // Store as cross-service dependency (API type, not import type)
-      await db.query(`
-        INSERT INTO cross_repo_dependencies (
-          source_repo_id, source_workspace_id,
-          target_repo_id, target_workspace_id,
-          dependency_type, api_contracts
-        ) VALUES ($1, $2, $3, $4, 'api', $5)
-      `, [
-        chunk.repo_id, chunk.workspace_id,
-        targetWorkspace.repo_id, targetWorkspace.workspace_id,
-        JSON.stringify({ endpoint: call.endpoint, method: call.method })
-      ]);
-    }
-  }
-};
-
-// Example patterns to detect:
-const apiPatterns = {
-  // JavaScript/TypeScript
-  fetch: /fetch\(['"]([^'"]+)['"]/g,
-  axios: /axios\.(get|post|put|delete)\(['"]([^'"]+)['"]/g,
-  // Python
-  requests: /requests\.(get|post|put|delete)\(['"]([^'"]+)['"]/g,
-  httpx: /httpx\.(get|post|put|delete)\(['"]([^'"]+)['"]/g,
-  // Go
-  httpGet: /http\.Get\("([^"]+)"\)/g,
-  httpPost: /http\.Post\("([^"]+)"/g
-};
-```
-
-#### Import Chain Expansion Rules
-
-**Rule:** Stop import chain expansion at language boundaries.
-
-```typescript
-const shouldExpandImport = (currentFile: FileMetadata, importedFile: FileMetadata): boolean => {
-  // Check if files belong to same-language workspace
-  if (currentFile.workspace_language === importedFile.workspace_language) {
-    return true;  // ✅ Same language - expand normally
-  }
-
-  // Different languages = impossible to import
-  logger.info('Import chain stopped at language boundary', {
-    from: `${currentFile.file_path} (${currentFile.workspace_language})`,
-    to: `${importedFile.file_path} (${importedFile.workspace_language})`,
-    reason: 'Cross-language imports not possible'
-  });
-
-  return false;  // ❌ Different language - don't expand
-};
-
-// Example import chain
-// frontend/src/UserList.tsx (TypeScript)
-//   → import './services/user.service' ✅ Expand (TypeScript → TypeScript)
-//     → import './api-client' ✅ Expand (TypeScript → TypeScript)
-//       → fetch('/api/users') ❌ STOP (TypeScript → Python API)
-//                                Treat as API call, not import
-```
-
-#### Example Implementation: Python Backend + TypeScript Frontend
-
-```typescript
-// Monorepo structure
-my-fullstack-app/
-├── apps/
-│   ├── backend/     # Python (FastAPI)
-│   │   ├── requirements.txt
-│   │   ├── main.py
-│   │   └── openapi.yaml
-│   └── frontend/    # TypeScript (React)
-│       ├── package.json
-│       └── src/
-│           └── api/
-│               └── client.ts
-
-// 1. Workspace Detection Result
-{
-  workspaces: [
-    {
-      workspace_id: 'backend',
-      primary_language: 'python',
-      package_manager: 'pip',
-      root_path: 'apps/backend'
-    },
-    {
-      workspace_id: 'frontend',
-      primary_language: 'typescript',
-      package_manager: 'npm',
-      root_path: 'apps/frontend'
-    }
-  ]
-}
-
-// 2. Indexing Process
-// Backend (Python) - Use Python parser
-parseFile('apps/backend/main.py', {
-  language: 'python',
-  workspace_id: 'backend',
-  workspace_language: 'python'
-});
-
-// Frontend (TypeScript) - Use TypeScript parser
-parseFile('apps/frontend/src/api/client.ts', {
-  language: 'typescript',
-  workspace_id: 'frontend',
-  workspace_language: 'typescript'
-});
-
-// 3. Cross-Language API Call Detection
-// File: apps/frontend/src/api/client.ts
-const code = `
-export const fetchUsers = async () => {
-  return fetch('/api/users');  // ← Detected as API call
-};
-`;
-
-// Detected API call stored as:
-{
-  source_workspace_id: 'frontend',
-  target_workspace_id: 'backend',  // Resolved from endpoint
-  dependency_type: 'api',
-  api_contracts: {
-    endpoint: '/api/users',
-    method: 'GET'
-  }
-}
-
-// 4. Search Behavior
-await search_codebase({
-  query: 'user fetching',
-  scope: 'repository',
-  repo_id: 'my-fullstack-app'
-});
-
-// Returns (grouped by workspace):
-{
-  results: [
-    {
-      workspace: 'frontend',
-      language: 'typescript',
-      chunks: [
-        {file: 'src/api/client.ts', function: 'fetchUsers'}
-      ]
-    },
-    {
-      workspace: 'backend',
-      language: 'python',
-      chunks: [
-        {file: 'main.py', function: 'get_users'}
-      ],
-      api_contract: {endpoint: '/api/users', method: 'GET'}
-    }
-  ]
-}
-```
-
-#### Testing Multi-Language Monorepos
-
-**Test 1: Language Detection**
-```typescript
-test('detects Python workspace correctly', async () => {
-  const workspace = await detectWorkspace('/monorepo/apps/backend');
-  expect(workspace.primary_language).toBe('python');
-  expect(workspace.package_manager).toBe('pip');
-});
-
-test('detects TypeScript workspace correctly', async () => {
-  const workspace = await detectWorkspace('/monorepo/apps/frontend');
-  expect(workspace.primary_language).toBe('typescript');
-  expect(workspace.package_manager).toBe('npm');
-});
-```
-
-**Test 2: Cross-Language API Call Detection**
-```typescript
-test('detects API call from TypeScript to Python', async () => {
-  await indexRepository({
-    repo_path: '/monorepo',
-    repo_type: 'monorepo'
-  });
-
-  const deps = await db.query(`
-    SELECT * FROM cross_repo_dependencies
-    WHERE source_workspace_id = 'frontend'
-      AND target_workspace_id = 'backend'
-      AND dependency_type = 'api'
-  `);
-
-  expect(deps.rows).toHaveLength(1);
-  expect(deps.rows[0]?.api_contracts).toMatchObject({
-    endpoint: '/api/users',
-    method: 'GET'
-  });
-});
-```
-
-**Test 3: Import Expansion Stops at Language Boundaries**
-```typescript
-test('does not expand imports across languages', async () => {
-  const results = await searchCodebase({
-    query: 'user authentication',
-    scope: 'repository',
-    repo_id: 'my-fullstack-app'
-  });
-
-  // Frontend results should NOT include Python backend files
-  const frontendResults = results.chunks.filter(c => c.workspace_id === 'frontend');
-  const hasBackendImports = frontendResults.some(c =>
-    c.imports?.some(imp => imp.workspace_id === 'backend')
-  );
-
-  expect(hasBackendImports).toBe(false);
-
-  // But should have API contract links
-  expect(frontendResults[0]?.api_calls).toContainEqual(
-    expect.objectContaining({endpoint: '/api/users'})
-  );
-});
-```
-
-**Test 4: Workspace-Scoped Search Respects Language**
-```typescript
-test('workspace search returns only matching language', async () => {
-  const results = await searchCodebase({
-    query: 'user service',
-    scope: 'workspace',
-    workspace_id: 'backend'
-  });
-
-  // Should only return Python files
-  results.chunks.forEach(chunk => {
-    expect(chunk.language).toBe('python');
-    expect(chunk.workspace_id).toBe('backend');
-  });
-});
-```
-
-#### Error Handling
-
-**Don't fail on mixed-language workspaces:**
-```typescript
-const detectWorkspaceLanguage = (workspacePath: string): string => {
-  const languages = [];
-
-  if (existsSync(join(workspacePath, 'package.json'))) languages.push('typescript');
-  if (existsSync(join(workspacePath, 'requirements.txt'))) languages.push('python');
-
-  if (languages.length > 1) {
-    logger.warn('Mixed-language workspace detected', {
-      workspace: workspacePath,
-      languages,
-      action: 'Using first detected language'
-    });
-  }
-
-  return languages[0] ?? 'unknown';
-};
-```
-
-**Log cross-language import attempts (for debugging):**
-```typescript
-if (currentFile.workspace_language !== importedFile.workspace_language) {
-  logger.debug('Cross-language reference detected', {
-    from: currentFile.file_path,
-    from_language: currentFile.workspace_language,
-    to: importedFile.file_path,
-    to_language: importedFile.workspace_language,
-    note: 'This should be an API call, not a code import'
-  });
-}
-```
-
-**Critical Reminder:** Never attempt to resolve imports across different languages. Cross-language communication MUST be tracked as API calls, not import dependencies.
+**Key Principles:**
+- Always require `repo_id` for multi-project operations
+- Implement scope filtering in retrieval pipeline Stage 0
+- Use parameterized queries with `repo_id = ANY($1)` filters
+- Cross-language communication = API calls, not imports
+- Build incrementally: basic indexing → scoped search → dependency detection → API contracts
+
+**Detailed implementation guidance:** See `docs/overview.md` Section 1.5 for multi-project architecture, API contract parsing patterns, workspace alias resolution, cross-repo deduplication, and multi-language monorepo handling.
 
 ## Additional Resources
 

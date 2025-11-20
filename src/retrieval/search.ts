@@ -1,27 +1,30 @@
 /**
  * Search Orchestrator (Main Entry Point)
  *
- * Coordinates the 5-stage retrieval pipeline for single-repository RAG search.
+ * Coordinates the 9-stage retrieval pipeline for multi-project RAG search.
  * Main function: searchCodebase()
  *
  * Pipeline stages:
+ * 0. Scope Filtering → Determine repo/service/workspace scope (multi-project)
  * 1. Query Processing → Generate embedding
- * 2. File Retrieval → Find relevant files
- * 3. Chunk Retrieval → Find relevant chunks within files
+ * 2. File Retrieval → Find relevant files (scope-filtered)
+ * 3. Chunk Retrieval → Find relevant chunks within files (scope-filtered)
  * 4. Symbol Resolution → Resolve imported symbols
  * 5. Import Expansion → Build dependency graph (optional)
- * 6. Deduplication → Remove duplicate chunks
- * 7. Context Assembly → Build final SearchResult
+ * 6. API Contract Enrichment → Add API endpoint information (multi-project)
+ * 7. Deduplication → Remove duplicate chunks
+ * 8. Context Assembly → Build final SearchResult
  */
 
 import { type DatabaseClient } from '@database/client';
-import { enrichWithAPIContracts } from '@retrieval/api-enricher';
+import { enrichWithAPIContracts, enrichWithAPIContractsFiltered } from '@retrieval/api-enricher';
 import { retrieveChunks } from '@retrieval/chunk-retrieval';
 import { assembleContext } from '@retrieval/context-assembler';
 import { deduplicateChunksBase } from '@retrieval/deduplicator';
 import { retrieveFiles } from '@retrieval/file-retrieval';
 import { expandImports } from '@retrieval/import-expander';
 import { processQuery } from '@retrieval/query-processor';
+import { determineSearchScope, type ScopeFilterConfig, type ScopeMode } from '@retrieval/scope-filter';
 import { resolveSymbols } from '@retrieval/symbol-resolver';
 import { logger } from '@utils/logger';
 import { type OllamaClient } from '@utils/ollama';
@@ -31,10 +34,11 @@ import { type SearchOptions, type SearchResult } from '@/types/retrieval';
 /**
  * Search codebase with semantic RAG retrieval
  *
- * Executes the 7-stage retrieval pipeline:
+ * Executes the 9-stage retrieval pipeline:
+ * 0. Scope Filtering: Determine repo/service/workspace scope (multi-project)
  * 1. Query Processing: Convert user query to embedding vector
- * 2. File Retrieval: Find top N relevant files (broad search)
- * 3. Chunk Retrieval: Find relevant chunks within top files (precise search)
+ * 2. File Retrieval: Find top N relevant files (broad search, scope-filtered)
+ * 3. Chunk Retrieval: Find relevant chunks within top files (precise search, scope-filtered)
  * 4. Symbol Resolution: Resolve imported symbols to definitions
  * 5. Import Expansion: Build dependency graph (optional)
  * 6. API Contract Enrichment: Add API contract information (multi-project)
@@ -45,7 +49,7 @@ import { type SearchOptions, type SearchResult } from '@/types/retrieval';
  * @param config - cindex configuration
  * @param db - Database client
  * @param ollama - Ollama client for embedding generation
- * @param options - Search options (optional)
+ * @param options - Search options (optional, includes scope filtering params)
  * @returns Search result with relevant files, chunks, symbols, and imports
  */
 export const searchCodebase = async (
@@ -75,17 +79,74 @@ export const searchCodebase = async (
     similarityThreshold,
   });
 
+  // Progress notification: Search started
+  logger.info('[1/9] Search pipeline started', { stage: 'initialization' });
+
+  // ============================================================================
+  // STAGE 0: Scope Filtering (Multi-Project Support)
+  // ============================================================================
+  logger.debug('Stage 0: Scope filtering');
+
+  // Determine scope mode based on options
+  let scopeMode: ScopeMode = 'global';
+  if (options.repo_filter && options.repo_filter.length > 0) {
+    scopeMode = 'repository';
+  } else if (options.service_filter && options.service_filter.length > 0) {
+    scopeMode = 'service';
+  }
+
+  // Build scope filter configuration
+  const scopeConfig: ScopeFilterConfig = {
+    mode: scopeMode,
+    repo_ids: options.repo_filter,
+    exclude_repos: options.exclude_repos,
+    cross_repo: options.cross_repo,
+    service_ids: options.service_filter,
+    exclude_services: options.exclude_services,
+    workspace_ids: options.workspace_filter,
+    exclude_workspaces: options.exclude_workspaces,
+    include_references: options.include_references ?? false,
+    include_documentation: options.include_documentation ?? false,
+    exclude_repo_types: options.exclude_repo_types ?? [],
+  };
+
+  // Determine search scope (resolves repo/service/workspace IDs)
+  const scopeFilter = await determineSearchScope(scopeConfig, db);
+
+  logger.info('Search scope determined', {
+    mode: scopeFilter.mode,
+    repos: scopeFilter.repo_ids.length,
+    services: scopeFilter.service_ids.length,
+    workspaces: scopeFilter.workspace_ids.length,
+  });
+
+  logger.info('[2/9] Scope filtering complete', {
+    stage: 'scope_filtering',
+    repos: scopeFilter.repo_ids.length,
+  });
+
   // ============================================================================
   // STAGE 1: Query Processing
   // ============================================================================
   logger.debug('Stage 1: Query processing');
   const queryEmbedding = await processQuery(query, config, ollama);
 
+  logger.info('[3/9] Query processed', {
+    stage: 'query_processing',
+    queryType: queryEmbedding.query_type,
+    cached: queryEmbedding.generation_time_ms < 50,
+  });
+
   // ============================================================================
   // STAGE 2: File-Level Retrieval
   // ============================================================================
   logger.debug('Stage 2: File-level retrieval');
-  const relevantFiles = await retrieveFiles(queryEmbedding, config, db, maxFiles, similarityThreshold);
+  const relevantFiles = await retrieveFiles(queryEmbedding, config, db, scopeFilter, maxFiles, similarityThreshold);
+
+  logger.info('[4/9] File retrieval complete', {
+    stage: 'file_retrieval',
+    filesFound: relevantFiles.length,
+  });
 
   if (relevantFiles.length === 0) {
     logger.warn('No relevant files found', { query });
@@ -120,9 +181,15 @@ export const searchCodebase = async (
     relevantFiles,
     config,
     db,
+    scopeFilter,
     maxSnippets * 4, // Retrieve 4x maxSnippets before dedup (expect ~75% dedup rate)
     0.75 // Higher threshold for chunks
   );
+
+  logger.info('[5/9] Chunk retrieval complete', {
+    stage: 'chunk_retrieval',
+    chunksFound: relevantChunks.length,
+  });
 
   if (relevantChunks.length === 0) {
     logger.info('No relevant chunks found in top files', {
@@ -156,6 +223,11 @@ export const searchCodebase = async (
   logger.debug('Stage 4: Symbol resolution');
   const resolvedSymbols = await resolveSymbols(relevantChunks, db);
 
+  logger.info('[6/9] Symbol resolution complete', {
+    stage: 'symbol_resolution',
+    symbolsResolved: resolvedSymbols.length,
+  });
+
   // ============================================================================
   // STAGE 5: Import Chain Expansion (Optional)
   // ============================================================================
@@ -169,21 +241,51 @@ export const searchCodebase = async (
       10, // Expand top 10 files
       importDepth
     );
+    logger.info('[7/9] Import expansion complete', {
+      stage: 'import_expansion',
+      importChains: importChains.length,
+    });
   } else {
     logger.debug('Stage 5: Import chain expansion (skipped)');
+    logger.info('[7/9] Import expansion skipped', { stage: 'import_expansion' });
   }
 
   // ============================================================================
   // STAGE 6: API Contract Enrichment (Multi-Project)
   // ============================================================================
   logger.debug('Stage 6: API contract enrichment');
-  const apiContext = await enrichWithAPIContracts(relevantFiles, relevantChunks, db, queryEmbedding, options);
+
+  // Use scope-filtered enrichment if scope filtering is active
+  const apiContext =
+    scopeFilter.service_ids.length > 0
+      ? await enrichWithAPIContractsFiltered(
+          relevantFiles,
+          relevantChunks,
+          db,
+          scopeFilter.service_ids,
+          queryEmbedding,
+          options
+        )
+      : await enrichWithAPIContracts(relevantFiles, relevantChunks, db, queryEmbedding, options);
+
+  logger.info('[8/9] API enrichment complete', {
+    stage: 'api_enrichment',
+    endpoints: apiContext.endpoints.length,
+    crossServiceCalls: apiContext.cross_service_calls.length,
+  });
 
   // ============================================================================
   // STAGE 7: Deduplication
   // ============================================================================
   logger.debug('Stage 7: Deduplication');
   const dedupResult = deduplicateChunksBase(relevantChunks, dedupThreshold);
+
+  logger.info('[9/9] Deduplication complete', {
+    stage: 'deduplication',
+    chunksBeforeDedup: relevantChunks.length,
+    chunksAfterDedup: dedupResult.unique_chunks.length,
+    duplicatesRemoved: dedupResult.duplicates_removed,
+  });
 
   // ============================================================================
   // STAGE 8: Context Assembly
