@@ -38,17 +38,18 @@ interface ChunkRetrievalRow {
  * Uses higher similarity threshold (0.75 vs 0.70) for more precise results.
  * Excludes file_summary chunks to avoid redundancy.
  *
- * Note: Scope filtering is applied through relevantFiles (already filtered in Stage 2),
+ * Note: Scope filtering is applied through relevantFiles (already filtered in Stage 1),
  * so scopeFilter is mainly used for logging and future direct database queries.
  *
  * @param queryEmbedding - Query embedding from processQuery()
  * @param relevantFiles - Top files from Stage 1 (retrieveFiles)
- * @param config - cindex configuration
+ * @param config - cindex configuration (unused, reserved for future thresholds)
  * @param db - Database client
  * @param scopeFilter - Scope filter from Stage 0 (optional, null for single-repo mode)
  * @param maxChunks - Maximum chunks to return (default: 100, before dedup)
  * @param chunkSimilarityThreshold - Minimum similarity score (default: 0.75, higher than Stage 1)
- * @returns Array of relevant chunks ranked by similarity
+ * @returns Array of relevant chunks ranked by similarity (includes embedding for deduplication)
+ * @throws Error if database query fails or no files provided
  */
 export const retrieveChunks = async (
   queryEmbedding: QueryEmbedding,
@@ -119,12 +120,13 @@ export const retrieveChunks = async (
     const result = await db.query<ChunkRetrievalRow>(query, params);
 
     const chunks: RelevantChunk[] = result.rows.map((row) => {
-      // Parse embedding string back to number array (for deduplication)
+      // Parse embedding string back to number array (for Stage 7 deduplication)
+      // pgvector returns embedding as string "[1.2, 3.4, ...]"
       let embeddingArray: number[] | undefined;
       try {
         embeddingArray = JSON.parse(row.embedding.replace(/^\[|\]$/g, '').replace(/\s+/g, ',')) as number[];
       } catch {
-        // If parsing fails, embedding will be undefined (deduplication will skip)
+        // If parsing fails, embedding will be undefined (deduplication will skip this chunk)
         logger.warn('Failed to parse embedding for chunk', { chunk_id: row.chunk_id });
       }
 

@@ -35,6 +35,14 @@ import { type SearchOptions, type SearchResult } from '@/types/retrieval';
 
 /**
  * Global performance monitor for retrieval operations
+ *
+ * Tracks query duration, memory usage, and throughput.
+ * Logs statistics every 10 queries and alerts if thresholds are exceeded.
+ *
+ * Performance targets:
+ * - Duration: <800ms (alerts at 2000ms)
+ * - Memory: <512MB
+ * - Throughput: >0.5 queries/sec
  */
 const retrievalPerformanceMonitor = new PerformanceMonitor({
   enabled: true,

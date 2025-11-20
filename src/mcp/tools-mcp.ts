@@ -1,6 +1,12 @@
 /**
  * MCP-compliant tool wrappers
- * Converts our tool implementations to MCP SDK format
+ *
+ * Converts internal tool implementations to MCP SDK format with standardized
+ * response structure. Each wrapper transforms the tool output to MCP's expected
+ * format: { content: [{ type: 'text', text: string }], structuredContent?: unknown }.
+ *
+ * All wrappers provide both formatted Markdown output (for display) and structured
+ * data (for programmatic access by MCP clients).
  */
 import { type Pool } from 'pg';
 
@@ -24,14 +30,28 @@ import { type CindexConfig } from '@/types/config';
 
 /**
  * MCP tool return type
+ *
+ * Standardized response format for all MCP tools following the MCP SDK specification.
+ * Content is always an array of text blocks for display, while structuredContent
+ * provides machine-readable data for programmatic access.
  */
 interface MCPToolResult {
-  content: { type: 'text'; text: string }[];
-  structuredContent?: unknown;
+  content: { type: 'text'; text: string }[]; // Formatted text output (Markdown)
+  structuredContent?: unknown; // Structured data for programmatic access
 }
 
 /**
  * search_codebase MCP wrapper
+ *
+ * Wraps the search_codebase tool for MCP SDK compatibility. Returns formatted
+ * Markdown search results and structured metadata for programmatic access.
+ *
+ * @param db - Database connection pool
+ * @param config - cindex configuration
+ * @param ollama - Ollama client for embeddings
+ * @param input - Search parameters
+ * @returns MCP-formatted result with content and structured metadata
+ * @throws {Error} If search fails or validation errors occur
  */
 export const searchCodebaseMCP = async (
   db: Pool,
@@ -67,6 +87,14 @@ export const searchCodebaseMCP = async (
 
 /**
  * get_file_context MCP wrapper
+ *
+ * Wraps the get_file_context tool for MCP SDK compatibility. Returns formatted
+ * file context with callers, callees, and code chunks.
+ *
+ * @param db - Database connection pool
+ * @param input - Get file context parameters
+ * @returns MCP-formatted result with file metadata and dependency information
+ * @throws {Error} If file not found or database query fails
  */
 export const getFileContextMCP = async (db: Pool, input: GetFileContextInput): Promise<MCPToolResult> => {
   try {
@@ -96,6 +124,14 @@ export const getFileContextMCP = async (db: Pool, input: GetFileContextInput): P
 
 /**
  * find_symbol_definition MCP wrapper
+ *
+ * Wraps the find_symbol_definition tool for MCP SDK compatibility. Returns formatted
+ * symbol definitions and optional usage locations.
+ *
+ * @param db - Database connection pool
+ * @param input - Find symbol parameters
+ * @returns MCP-formatted result with symbol definitions and usage statistics
+ * @throws {Error} If validation fails or database query fails
  */
 export const findSymbolMCP = async (db: Pool, input: FindSymbolInput): Promise<MCPToolResult> => {
   try {
@@ -129,6 +165,15 @@ export const findSymbolMCP = async (db: Pool, input: FindSymbolInput): Promise<M
 
 /**
  * index_repository MCP wrapper
+ *
+ * Wraps the index_repository tool for MCP SDK compatibility. Returns formatted
+ * indexing statistics with progress callback support for long-running operations.
+ *
+ * @param orchestrator - Indexing orchestrator instance
+ * @param input - Index repository parameters
+ * @param onProgress - Optional progress callback for MCP notifications
+ * @returns MCP-formatted result with indexing statistics
+ * @throws {Error} If repository path invalid or indexing fails
  */
 export const indexRepositoryMCP = async (
   orchestrator: IndexingOrchestrator,
@@ -171,6 +216,14 @@ export const indexRepositoryMCP = async (
 
 /**
  * delete_repository MCP wrapper
+ *
+ * Wraps the delete_repository tool for MCP SDK compatibility. Validates and deletes
+ * repositories with their associated data (files, chunks, symbols, workspaces, services).
+ *
+ * @param db - Database connection pool
+ * @param input - Delete repository parameters with repo_ids array
+ * @returns MCP-formatted result with deletion statistics per repository
+ * @throws {Error} If validation fails, repository not found, or deletion fails
  */
 export const deleteRepositoryMCP = async (db: Pool, input: DeleteRepositoryInput): Promise<MCPToolResult> => {
   try {

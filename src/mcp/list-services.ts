@@ -31,9 +31,14 @@ export interface ListServicesOutput {
 /**
  * List services MCP tool implementation
  *
+ * Lists all detected services in microservice or monorepo architectures with optional
+ * filtering by repository and service type. Includes service metadata and optionally
+ * fetches API endpoints and dependencies for each service.
+ *
  * @param db - Database connection pool
- * @param input - List services parameters
- * @returns Formatted service list
+ * @param input - List services parameters with optional repo and type filters
+ * @returns Formatted service list with metadata and optional API endpoint counts
+ * @throws {Error} If validation fails or database query fails
  */
 export const listServicesTool = async (db: Pool, input: ListServicesInput): Promise<ListServicesOutput> => {
   logger.info('list_services tool invoked', { repo_id: input.repo_id });
@@ -73,6 +78,7 @@ export const listServicesTool = async (db: Pool, input: ListServicesInput): Prom
   }
 
   // Transform services to match formatter's expected type
+  // Fetch API endpoints asynchronously if requested (can be slow for many services)
   const services: ServiceInfo[] = await Promise.all(
     dbServices.map(async (service) => ({
       service_id: service.service_id,

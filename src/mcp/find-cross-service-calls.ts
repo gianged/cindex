@@ -36,9 +36,14 @@ export interface FindCrossServiceCallsOutput {
 /**
  * Find cross-service calls MCP tool implementation
  *
+ * Searches for inter-service API calls in microservice architectures. Supports
+ * filtering by source/target service, endpoint patterns, and bidirectional search.
+ * Useful for analyzing service dependencies and API usage patterns.
+ *
  * @param db - Database connection pool
  * @param input - Find cross-service calls parameters
- * @returns Formatted API call results
+ * @returns Formatted API call results with source, target, endpoint, and call count
+ * @throws {Error} If validation fails for any parameter
  */
 export const findCrossServiceCallsTool = async (
   db: Pool,
@@ -69,7 +74,8 @@ export const findCrossServiceCallsTool = async (
     endpointPattern,
   });
 
-  // If include_reverse is true, also get reverse calls
+  // If include_reverse is true, also get reverse calls (swap source and target)
+  // This allows bidirectional analysis of service communication patterns
   let reverseCalls: typeof calls = [];
   if (includeReverse && (sourceServiceId ?? targetServiceId)) {
     reverseCalls = await findCrossServiceCalls(db, {
@@ -79,6 +85,7 @@ export const findCrossServiceCallsTool = async (
     });
   }
 
+  // Combine forward and reverse calls for complete analysis
   const allCalls = [...calls, ...reverseCalls];
 
   if (allCalls.length === 0) {

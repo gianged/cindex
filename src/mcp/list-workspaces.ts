@@ -30,9 +30,14 @@ export interface ListWorkspacesOutput {
 /**
  * List workspaces MCP tool implementation
  *
+ * Lists all workspaces in monorepo projects with optional filtering by repository.
+ * Includes workspace metadata and optionally fetches dependencies and dependents
+ * for each workspace package.
+ *
  * @param db - Database connection pool
- * @param input - List workspaces parameters
- * @returns Formatted workspace list
+ * @param input - List workspaces parameters with optional repo filter
+ * @returns Formatted workspace list with metadata and optional dependency information
+ * @throws {Error} If validation fails or database query fails
  */
 export const listWorkspacesTool = async (db: Pool, input: ListWorkspacesInput): Promise<ListWorkspacesOutput> => {
   logger.info('list_workspaces tool invoked', { repo_id: input.repo_id });
@@ -69,6 +74,7 @@ export const listWorkspacesTool = async (db: Pool, input: ListWorkspacesInput): 
   }
 
   // Transform workspaces to match formatter's expected type
+  // Fetch dependencies/dependents asynchronously if requested (can be slow for large monorepos)
   const workspaces: WorkspaceInfo[] = await Promise.all(
     dbWorkspaces.map(async (workspace) => ({
       workspace_id: workspace.workspace_id,

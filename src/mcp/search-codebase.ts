@@ -79,21 +79,30 @@ export interface SearchCodebaseOutput {
 
 /**
  * Validate and normalize workspace_filter parameter
+ *
+ * Converts single string or array values to validated string array.
+ * Ensures all workspace IDs pass validation before use in database queries.
+ *
+ * @param value - Input value (string, array, or undefined)
+ * @returns Validated array of workspace IDs, or undefined
+ * @throws {Error} If any workspace ID fails validation
  */
 const normalizeWorkspaceFilter = (value: unknown): string[] | undefined => {
   if (value === undefined || value === null) {
     return undefined;
   }
 
+  // Single workspace ID provided as string
   if (typeof value === 'string') {
     const validated = validateWorkspaceId(value, true);
     if (!validated) throw new Error('workspace_filter validation failed');
     return [validated];
   }
 
+  // Multiple workspace IDs provided as array
   const arr = validateArray('workspace_filter', value, false) as string[] | undefined;
   if (arr) {
-    // Validate each workspace ID
+    // Validate each workspace ID individually
     return arr.map((id) => {
       const validated = validateWorkspaceId(id, true);
       if (!validated) throw new Error('workspace_filter item validation failed');
@@ -106,6 +115,13 @@ const normalizeWorkspaceFilter = (value: unknown): string[] | undefined => {
 
 /**
  * Validate and normalize service_filter parameter
+ *
+ * Converts single string or array values to validated string array.
+ * Ensures all service IDs pass validation before use in database queries.
+ *
+ * @param value - Input value (string, array, or undefined)
+ * @returns Validated array of service IDs, or undefined
+ * @throws {Error} If any service ID fails validation
  */
 const normalizeServiceFilter = (value: unknown): string[] | undefined => {
   if (value === undefined || value === null) {
@@ -133,6 +149,13 @@ const normalizeServiceFilter = (value: unknown): string[] | undefined => {
 
 /**
  * Validate and normalize repo_filter parameter
+ *
+ * Converts single string or array values to validated string array.
+ * Ensures all repository IDs pass validation before use in database queries.
+ *
+ * @param value - Input value (string, array, or undefined)
+ * @returns Validated array of repository IDs, or undefined
+ * @throws {Error} If any repository ID fails validation
  */
 const normalizeRepoFilter = (value: unknown): string[] | undefined => {
   if (value === undefined || value === null) {
@@ -161,11 +184,17 @@ const normalizeRepoFilter = (value: unknown): string[] | undefined => {
 /**
  * Search codebase MCP tool implementation
  *
+ * Performs semantic code search using the 7-stage retrieval pipeline: query processing,
+ * file-level retrieval, chunk-level retrieval, symbol resolution, import chain expansion,
+ * API contract enrichment, and deduplication. Supports multi-project filtering by workspace,
+ * service, and repository with optional reference/documentation inclusion.
+ *
  * @param db - Database connection pool
- * @param config - cindex configuration
- * @param ollama - Ollama client for embeddings
- * @param input - Search parameters
- * @returns Formatted search result
+ * @param config - cindex configuration with embedding and summary settings
+ * @param ollama - Ollama client for embedding generation
+ * @param input - Search parameters with filters, scope, and retrieval options
+ * @returns Formatted search result with context, metadata, and warnings
+ * @throws {Error} If query validation fails or database connection fails
  */
 export const searchCodebaseTool = async (
   db: Pool,
@@ -187,15 +216,17 @@ export const searchCodebaseTool = async (
   const dedupThreshold = validateThreshold('dedup_threshold', input.dedup_threshold, false);
   const similarityThreshold = validateThreshold('similarity_threshold', input.similarity_threshold, false);
 
-  // Validate multi-project filters
+  // Validate multi-project filters with normalization
   const workspaceFilter = normalizeWorkspaceFilter(input.workspace_filter);
   // Note: packageFilter is validated but not used in current implementation
+  // TODO: Add package_filter support for filtering by package.json name
   // const packageFilter = validateArray('package_filter', input.package_filter, false) as string[] | undefined;
   const excludeWorkspaces = validateArray('exclude_workspaces', input.exclude_workspaces, false) as
     | string[]
     | undefined;
   const serviceFilter = normalizeServiceFilter(input.service_filter);
   // Note: serviceTypeFilter is validated but not used in current implementation
+  // TODO: Add service_type_filter support for filtering by docker/serverless/mobile
   // const serviceTypeFilter = validateArray('service_type_filter', input.service_type_filter, false) as string[] | undefined;
   const excludeServices = validateArray('exclude_services', input.exclude_services, false) as string[] | undefined;
   const repoFilter = normalizeRepoFilter(input.repo_filter);
@@ -215,7 +246,9 @@ export const searchCodebaseTool = async (
   );
   const excludeRepoTypes = validateArray('exclude_repo_types', input.exclude_repo_types, false) as string[] | undefined;
 
-  // Validate workspace/service scope
+  // Validate workspace/service scope configuration
+  // Scope modes: strict (same workspace/service only), inclusive (direct dependencies),
+  // unrestricted (all workspaces/services). Max depth controls dependency traversal.
   let workspaceScope: SearchOptions['workspace_scope'];
   if (input.workspace_scope) {
     const mode = validateEnum(
@@ -277,9 +310,9 @@ export const searchCodebaseTool = async (
 
   logger.debug('Executing codebase search', { options: searchOptions });
 
-  // Execute search
-  // Note: DatabaseClient expects a full class instance, but we only need the query method
-  // We create a minimal wrapper that provides the query interface
+  // Execute search through 7-stage retrieval pipeline
+  // Note: DatabaseClient expects a full class instance, but we only need the query method.
+  // We create a minimal wrapper that provides the query interface for compatibility.
   const dbClient = { query: db.query.bind(db) } as unknown as DatabaseClient;
   const result = await searchCodebaseFn(query, config, dbClient, ollama, searchOptions);
 

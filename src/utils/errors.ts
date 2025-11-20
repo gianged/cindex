@@ -7,8 +7,21 @@ import { logger } from '@utils/logger';
 
 /**
  * Base error class for cindex
+ *
+ * All custom errors extend this class to provide:
+ * - Error codes for programmatic handling
+ * - Structured details for debugging
+ * - User-friendly suggestions for resolution
  */
 export class CindexError extends Error {
+  /**
+   * Create cindex error
+   *
+   * @param message - Error message
+   * @param code - Error code (e.g., "CONFIG_ERROR")
+   * @param details - Structured error details for debugging
+   * @param suggestion - User-friendly resolution suggestion
+   */
   constructor(
     message: string,
     public readonly code: string,
@@ -21,7 +34,9 @@ export class CindexError extends Error {
   }
 
   /**
-   * Get formatted error message for display
+   * Get formatted error message with code, message, suggestion, and details
+   *
+   * @returns Multi-line formatted error message
    */
   getFormattedMessage(): string {
     let msg = `[${this.code}] ${this.message}`;
@@ -37,13 +52,19 @@ export class CindexError extends Error {
 }
 
 /**
- * Configuration error - missing or invalid configuration
+ * Configuration error - missing or invalid environment variables
  */
 export class ConfigurationError extends CindexError {
   constructor(message: string, details?: unknown, suggestion?: string) {
     super(message, 'CONFIG_ERROR', details, suggestion);
   }
 
+  /**
+   * Create error for missing required environment variable
+   *
+   * @param variableName - Name of missing variable
+   * @returns ConfigurationError with suggestion
+   */
   static missingRequired(variableName: string): ConfigurationError {
     return new ConfigurationError(
       `Missing required environment variable: ${variableName}`,
@@ -52,6 +73,14 @@ export class ConfigurationError extends CindexError {
     );
   }
 
+  /**
+   * Create error for invalid environment variable value
+   *
+   * @param variableName - Name of variable
+   * @param value - Invalid value provided
+   * @param expected - Description of expected value format
+   * @returns ConfigurationError with suggestion
+   */
   static invalidValue(variableName: string, value: unknown, expected: string): ConfigurationError {
     return new ConfigurationError(
       `Invalid value for ${variableName}: ${String(value)}`,
@@ -78,6 +107,15 @@ export class DatabaseConnectionError extends CindexError {
     super(message, 'DB_CONNECTION_ERROR', details, suggestion);
   }
 
+  /**
+   * Create error for failed database connection
+   *
+   * @param host - Database host
+   * @param port - Database port
+   * @param database - Database name
+   * @param cause - Underlying error
+   * @returns DatabaseConnectionError with troubleshooting steps
+   */
   static cannotConnect(host: string, port: number, database: string, cause?: Error): DatabaseConnectionError {
     return new DatabaseConnectionError(
       `Cannot connect to PostgreSQL database '${database}' at ${host}:${String(port)}`,
@@ -240,7 +278,17 @@ export class RequestTimeoutError extends CindexError {
 }
 
 /**
- * Check if error is a retriable error (transient failure)
+ * Check if error is retriable (transient network/connection failure)
+ *
+ * Retriable errors include:
+ * - Connection refused/reset
+ * - Timeouts
+ * - DNS lookup failures
+ * - Request timeout errors
+ * - Ollama connection errors
+ *
+ * @param error - Error to check
+ * @returns True if error should be retried with backoff
  */
 export const isRetriableError = (error: Error): boolean => {
   const retriableCodes = ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN'];
@@ -253,7 +301,19 @@ export const isRetriableError = (error: Error): boolean => {
 };
 
 /**
- * Retry an async operation with exponential backoff
+ * Retry async operation with exponential backoff
+ *
+ * Implements retry logic with:
+ * - Exponential backoff (baseDelay * 2^attempt)
+ * - Only retries retriable errors
+ * - Logs retry attempts
+ *
+ * @param fn - Async function to retry
+ * @param maxRetries - Maximum number of retry attempts
+ * @param baseDelayMs - Base delay in milliseconds (doubles each retry)
+ * @param operationName - Operation name for logging
+ * @returns Function result
+ * @throws Last error if all retries exhausted
  */
 export const retryWithBackoff = async <T>(
   fn: () => Promise<T>,
@@ -263,16 +323,19 @@ export const retryWithBackoff = async <T>(
 ): Promise<T> => {
   let lastError: Error | undefined;
 
+  // Try up to maxRetries + 1 times (initial attempt + retries)
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
+      // Stop retrying if max retries reached or error is not retriable
       if (attempt === maxRetries || !isRetriableError(lastError)) {
         break;
       }
 
+      // Calculate exponential backoff delay
       const delayMs = baseDelayMs * Math.pow(2, attempt);
       logger.warn(
         `[RETRY] ${operationName} failed (attempt ${String(attempt + 1)}/${String(maxRetries)}), retrying in ${String(delayMs)}ms...`

@@ -33,6 +33,13 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 
 /**
  * Logger class with structured logging support
+ *
+ * Features:
+ * - Configurable log levels with filtering
+ * - Colored output for better readability
+ * - Structured context metadata
+ * - Specialized methods for common patterns (startup, health checks)
+ * - Outputs to stderr following MCP conventions
  */
 class Logger {
   private config: LoggerConfig = {
@@ -42,42 +49,56 @@ class Logger {
   };
 
   /**
-   * Set log level
+   * Set minimum log level for filtering
+   *
+   * @param level - Minimum level to log (DEBUG, INFO, WARN, ERROR)
    */
   setLevel = (level: LogLevel): void => {
     this.config.level = level;
   };
 
   /**
-   * Enable/disable colored output
+   * Enable or disable colored output
+   *
+   * @param enabled - True to enable colors, false for plain text
    */
   setColors = (enabled: boolean): void => {
     this.config.enableColors = enabled;
   };
 
   /**
-   * Enable/disable timestamps
+   * Enable or disable timestamps in log output
+   *
+   * @param enabled - True to include timestamps
    */
   setTimestamps = (enabled: boolean): void => {
     this.config.enableTimestamps = enabled;
   };
 
   /**
-   * Check if a log level should be logged
+   * Check if a log level should be logged based on configured minimum level
+   *
+   * @param level - Log level to check
+   * @returns True if level should be logged
    */
   private shouldLog = (level: LogLevel): boolean => {
     return LOG_LEVELS[level] >= LOG_LEVELS[this.config.level];
   };
 
   /**
-   * Format timestamp
+   * Format current timestamp as ISO 8601 string
+   *
+   * @returns ISO formatted timestamp
    */
   private formatTimestamp = (): string => {
     return new Date().toISOString();
   };
 
   /**
-   * Colorize log level
+   * Apply color to log level based on severity
+   *
+   * @param level - Log level
+   * @returns Colorized level string (or plain if colors disabled)
    */
   private colorizeLevel = (level: LogLevel): string => {
     if (!this.config.enableColors) {
@@ -97,7 +118,14 @@ class Logger {
   };
 
   /**
-   * Format log message
+   * Format complete log message with timestamp, level, message, and context
+   *
+   * Format: "TIMESTAMP LEVEL message {context}"
+   *
+   * @param level - Log level
+   * @param message - Log message
+   * @param context - Optional structured context metadata
+   * @returns Formatted log string
    */
   private formatMessage = (level: LogLevel, message: string, context?: LogContext): string => {
     const parts: string[] = [];
@@ -123,7 +151,11 @@ class Logger {
   };
 
   /**
-   * Write log to stderr
+   * Write formatted log message to stderr
+   *
+   * @param level - Log level
+   * @param message - Log message
+   * @param context - Optional context metadata
    */
   private write = (level: LogLevel, message: string, context?: LogContext): void => {
     if (!this.shouldLog(level)) {
@@ -135,35 +167,51 @@ class Logger {
   };
 
   /**
-   * Log debug message
+   * Log debug message (lowest severity)
+   *
+   * @param message - Debug message
+   * @param context - Optional context metadata
    */
   debug = (message: string, context?: LogContext): void => {
     this.write('DEBUG', message, context);
   };
 
   /**
-   * Log info message
+   * Log info message (informational, not an issue)
+   *
+   * @param message - Info message
+   * @param context - Optional context metadata
    */
   info = (message: string, context?: LogContext): void => {
     this.write('INFO', message, context);
   };
 
   /**
-   * Log warning message
+   * Log warning message (potential issue, but recoverable)
+   *
+   * @param message - Warning message
+   * @param context - Optional context metadata
    */
   warn = (message: string, context?: LogContext): void => {
     this.write('WARN', message, context);
   };
 
   /**
-   * Log error message
+   * Log error message (error condition)
+   *
+   * @param message - Error message
+   * @param context - Optional context metadata
    */
   error = (message: string, context?: LogContext): void => {
     this.write('ERROR', message, context);
   };
 
   /**
-   * Log error with stack trace
+   * Log error with full stack trace
+   *
+   * @param message - Error description
+   * @param error - Error object with stack trace
+   * @param context - Optional additional context
    */
   errorWithStack = (message: string, error: Error, context?: LogContext): void => {
     this.error(message, {
@@ -174,7 +222,9 @@ class Logger {
   };
 
   /**
-   * Log startup message with banner
+   * Log server startup message with ASCII banner
+   *
+   * @param config - Startup configuration (version, models)
    */
   startup = (config: { version: string; models: string[] }): void => {
     if (!this.shouldLog('INFO')) {
@@ -196,21 +246,28 @@ ZPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP]
   };
 
   /**
-   * Log shutdown message
+   * Log graceful shutdown message
    */
   shutdown = (): void => {
     this.info('Server shutting down gracefully...');
   };
 
   /**
-   * Log connection established
+   * Log successful service connection
+   *
+   * @param service - Service name (e.g., "PostgreSQL", "Ollama")
+   * @param details - Optional connection details
    */
   connected = (service: string, details?: LogContext): void => {
     this.info(`Connected to ${service}`, details);
   };
 
   /**
-   * Log health check
+   * Log health check result
+   *
+   * @param service - Service name
+   * @param status - Health check status (OK or FAILED)
+   * @param details - Optional details about the check
    */
   healthCheck = (service: string, status: 'OK' | 'FAILED', details?: LogContext): void => {
     if (status === 'OK') {
@@ -222,12 +279,14 @@ ZPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP]
 }
 
 /**
- * Singleton logger instance
+ * Singleton logger instance for application-wide logging
  */
 export const logger = new Logger();
 
 /**
- * Initialize logger with configuration
+ * Initialize logger with log level
+ *
+ * @param level - Minimum log level (default: INFO)
  */
 export const initLogger = (level: LogLevel = 'INFO'): void => {
   logger.setLevel(level);

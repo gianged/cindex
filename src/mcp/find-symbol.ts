@@ -59,12 +59,20 @@ export interface FindSymbolOutput {
 
 /**
  * Normalize scope filter parameter
+ *
+ * Converts single string or array values to a normalized string array format.
+ * Handles workspace_scope, service_scope, and repo_scope parameters which can
+ * be provided as either a single string or an array of strings.
+ *
+ * @param value - Input value (string, array, or undefined)
+ * @returns Normalized array of strings, or undefined if input is null/undefined
  */
 const normalizeScope = (value: unknown): string[] | undefined => {
   if (value === undefined || value === null) {
     return undefined;
   }
 
+  // Convert single string to array for consistent handling
   if (typeof value === 'string') {
     return [value];
   }
@@ -75,6 +83,15 @@ const normalizeScope = (value: unknown): string[] | undefined => {
 
 /**
  * Find symbol usages in code chunks
+ *
+ * Performs a case-insensitive search for symbol occurrences in code_chunks table.
+ * Supports multi-project filtering by workspace, service, and repository scope.
+ * Uses ILIKE for partial matching (finds symbol within chunk content).
+ *
+ * @param db - Database connection pool
+ * @param symbolName - Symbol name to search for (case-insensitive partial match)
+ * @param options - Usage search options with scope filters
+ * @returns Array of symbol usage locations with file path, line number, and context
  */
 const findSymbolUsages = async (
   db: Pool,
@@ -139,11 +156,17 @@ const findSymbolUsages = async (
 
 /**
  * Format symbol usages as Markdown
+ *
+ * Groups usages by file path and formats with code blocks. Shows up to 5 occurrences
+ * per file with syntax highlighting, line numbers, and multi-project context.
+ *
+ * @param usages - Array of symbol usage locations
+ * @returns Formatted Markdown string with grouped usages by file
  */
 const formatSymbolUsages = (usages: SymbolUsage[]): string => {
   const lines: string[] = [];
 
-  // Group by file
+  // Group by file for better readability
   const byFile = new Map<string, SymbolUsage[]>();
   for (const usage of usages) {
     if (!byFile.has(usage.file_path)) {
@@ -194,9 +217,14 @@ const formatSymbolUsages = (usages: SymbolUsage[]): string => {
 /**
  * Find symbol definition MCP tool implementation
  *
+ * Searches for symbol definitions (functions, classes, variables) across the codebase.
+ * Supports partial name matching, scope filtering (exported/internal), multi-project
+ * filtering, and optional usage tracking. Results are grouped by visibility scope.
+ *
  * @param db - Database connection pool
- * @param input - Find symbol parameters
- * @returns Formatted symbol definitions and usages
+ * @param input - Find symbol parameters with scope filters and usage options
+ * @returns Formatted symbol definitions and usages with location and definition code
+ * @throws {Error} If symbol_name validation fails or required parameters are missing
  */
 export const findSymbolTool = async (db: Pool, input: FindSymbolInput): Promise<FindSymbolOutput> => {
   logger.info('find_symbol_definition tool invoked', { symbol_name: input.symbol_name });
@@ -229,7 +257,9 @@ export const findSymbolTool = async (db: Pool, input: FindSymbolInput): Promise<
     repoScope,
   });
 
-  // Search for symbol definitions
+  // Build search options for symbol query
+  // Note: searchSymbols API currently only supports single workspace/service/repo filter,
+  // so we use the first item from array filters
   const searchOptions: {
     scope?: 'all' | 'exported' | 'internal';
     workspaceId?: string;
@@ -277,13 +307,14 @@ export const findSymbolTool = async (db: Pool, input: FindSymbolInput): Promise<
     });
   }
 
-  // Format output
+  // Format output as Markdown
   const lines: string[] = [];
 
   lines.push(`# Symbol Definitions: \`${symbolName}\`\n`);
   lines.push(`**Total Definitions:** ${String(symbols.length)}\n`);
 
-  // Group by scope (exported first)
+  // Group by scope (exported first for better visibility)
+  // Exported symbols are typically the public API surface
   const exported = symbols.filter((s) => s.scope === 'exported');
   const internal = symbols.filter((s) => s.scope === 'internal');
 

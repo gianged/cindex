@@ -10,6 +10,11 @@ import { logger } from '@utils/logger';
 
 /**
  * Scope mode for multi-project search
+ *
+ * - global: Search across all indexed repositories (excluding references/docs by default)
+ * - repository: Search within specific repository IDs
+ * - service: Search within specific service IDs
+ * - boundary-aware: Start from a repository and expand via dependency graph
  */
 export type ScopeMode = 'global' | 'repository' | 'service' | 'boundary-aware';
 

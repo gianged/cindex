@@ -68,6 +68,15 @@ interface ServiceNameRow {
 
 /**
  * HTTP client patterns for detecting API calls in code
+ *
+ * These regex patterns match common HTTP client usage in JavaScript/TypeScript:
+ * - fetch API calls (native browser/Node.js)
+ * - axios method calls (axios.get, axios.post, etc.)
+ * - axios config objects
+ * - GraphQL query/mutation operations
+ * - gRPC client instantiations
+ *
+ * Used in detectCrossServiceCalls() to identify cross-service dependencies.
  */
 const API_CALL_PATTERNS = {
   // JavaScript/TypeScript patterns
@@ -350,10 +359,11 @@ const fetchServiceAPIs = async (db: DatabaseClient, serviceIds: Set<string>): Pr
  * Detect API calls in code chunks
  *
  * Parses chunk content for HTTP client usage, GraphQL queries, gRPC calls.
+ * Matches detected calls against known API endpoints to identify inter-service dependencies.
  *
  * @param chunks - Code chunks to analyze
- * @param endpoints - Known API endpoints from services
- * @returns Array of detected cross-service calls
+ * @param endpoints - Known API endpoints from services (for matching)
+ * @returns Array of detected cross-service calls with endpoint matches
  */
 const detectCrossServiceCalls = (chunks: RelevantChunk[], endpoints: APIEndpointMatch[]): CrossServiceCall[] => {
   const calls: CrossServiceCall[] = [];
@@ -480,8 +490,13 @@ const detectCrossServiceCalls = (chunks: RelevantChunk[], endpoints: APIEndpoint
 /**
  * Extract path from URL (remove protocol, domain, query params)
  *
+ * Examples:
+ * - "https://api.example.com/users?limit=10" → "/users"
+ * - "/api/v1/posts" → "/api/v1/posts"
+ * - "users" → "/users"
+ *
  * @param url - Full URL or path
- * @returns Extracted path
+ * @returns Extracted path (always starts with /)
  */
 const extractPathFromURL = (url: string): string => {
   // Remove protocol and domain if present
@@ -501,11 +516,12 @@ const extractPathFromURL = (url: string): string => {
 /**
  * Link endpoints to implementation chunks
  *
- * Uses implementation_chunk_id from endpoint metadata or pattern matching.
+ * Uses implementation_chunk_id from endpoint metadata (set during API contract parsing).
+ * Groups multiple endpoints implemented in the same chunk.
  *
- * @param endpoints - API endpoints
- * @param chunks - Code chunks
- * @returns Contract links between chunks and endpoints
+ * @param endpoints - API endpoints with implementation_chunk_id
+ * @param chunks - Code chunks from retrieval
+ * @returns Contract links between chunks and endpoints (high confidence: 1.0)
  */
 const linkEndpointsToChunks = (endpoints: APIEndpointMatch[], chunks: RelevantChunk[]): ContractLink[] => {
   const links: ContractLink[] = [];

@@ -115,10 +115,12 @@ export class PerformanceMonitor {
   /**
    * Start timing a stage
    *
-   * @param stage - Stage name
-   * @param operation - Operation name
-   * @param metadata - Additional metadata
-   * @returns Metric ID
+   * Returns metric ID for later use with endStage().
+   *
+   * @param stage - Stage name (e.g., "indexing", "retrieval")
+   * @param operation - Operation name (e.g., "embedding", "file-walk")
+   * @param metadata - Additional metadata to track
+   * @returns Metric ID to pass to endStage(), or -1 if monitoring disabled
    */
   startStage = (stage: string, operation: string, metadata?: Record<string, unknown>): number => {
     if (!this.config.enabled) return -1;
@@ -131,14 +133,18 @@ export class PerformanceMonitor {
     };
 
     this.metrics.push(metric);
+    // Return array index as metric ID
     return this.metrics.length - 1;
   };
 
   /**
-   * End timing a stage
+   * End timing a stage and calculate metrics
    *
-   * @param metricId - Metric ID from startStage
-   * @param itemsProcessed - Number of items processed (for throughput)
+   * Calculates duration, throughput, and memory usage.
+   * Checks alert thresholds and logs periodically.
+   *
+   * @param metricId - Metric ID from startStage()
+   * @param itemsProcessed - Number of items processed (for throughput calculation)
    */
   endStage = (metricId: number, itemsProcessed = 1): void => {
     if (!this.config.enabled || metricId < 0 || metricId >= this.metrics.length) return;
@@ -152,20 +158,21 @@ export class PerformanceMonitor {
       metric.throughput = (itemsProcessed / metric.durationMs) * 1000;
     }
 
-    // Track memory usage
+    // Track memory usage if enabled
     if (this.config.trackMemory) {
       const memUsage = process.memoryUsage();
       metric.memoryUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
 
+      // Update peak memory
       if (metric.memoryUsedMB > this.peakMemoryMB) {
         this.peakMemoryMB = metric.memoryUsedMB;
       }
     }
 
-    // Check thresholds and alert
+    // Check performance thresholds and alert if exceeded
     this.checkThresholds(metric);
 
-    // Log periodically
+    // Log progress at intervals (e.g., every 100 operations)
     if (this.config.logInterval && this.metrics.length % this.config.logInterval === 0) {
       logger.debug('Performance checkpoint', {
         totalOperations: this.metrics.length,
@@ -177,13 +184,17 @@ export class PerformanceMonitor {
   };
 
   /**
-   * Track a complete operation (convenience method)
+   * Track a complete operation (convenience wrapper)
+   *
+   * Automatically calls startStage/endStage around function execution.
+   * On error, marks operation as failed (itemsProcessed=0).
    *
    * @param stage - Stage name
    * @param operation - Operation name
-   * @param fn - Function to execute
-   * @param itemsProcessed - Number of items processed
+   * @param fn - Async function to execute and measure
+   * @param itemsProcessed - Number of items processed (for throughput)
    * @returns Function result
+   * @throws Re-throws any error from fn after recording metrics
    */
   trackOperation = async <T>(
     stage: string,
@@ -197,7 +208,8 @@ export class PerformanceMonitor {
       this.endStage(metricId, itemsProcessed);
       return result;
     } catch (error) {
-      this.endStage(metricId, 0); // Mark as failed
+      // Record failed operation (0 items processed)
+      this.endStage(metricId, 0);
       throw error;
     }
   };
@@ -240,14 +252,18 @@ export class PerformanceMonitor {
   };
 
   /**
-   * Calculate percentile
+   * Calculate percentile value from sorted array
    *
-   * @param values - Sorted array of values
-   * @param percentile - Percentile (0-100)
+   * Uses nearest-rank method (ceil).
+   * Example: For p95 with 100 values, returns the 95th value.
+   *
+   * @param values - Sorted array of values (must be pre-sorted)
+   * @param percentile - Percentile (0-100, e.g., 50 for median)
    * @returns Percentile value
    */
   private calculatePercentile = (values: number[], percentile: number): number => {
     if (values.length === 0) return 0;
+    // Nearest-rank method: ceil((percentile/100) * N) - 1
     const index = Math.ceil((percentile / 100) * values.length) - 1;
     return values[Math.max(0, index)];
   };
@@ -304,15 +320,21 @@ export class PerformanceMonitor {
   };
 
   /**
-   * Generate performance summary
+   * Generate comprehensive performance summary
    *
-   * @returns Performance summary
+   * Calculates:
+   * - Overall metrics (duration, throughput, memory)
+   * - Per-stage statistics
+   * - Bottlenecks (stages consuming >20% of total time)
+   *
+   * @returns Performance summary with aggregate statistics
    */
   getSummary = (): PerformanceSummary => {
     const totalDurationMs = Date.now() - this.startTime;
     const completedMetrics = this.metrics.filter((m) => m.durationMs !== undefined);
     const stages = [...new Set(this.metrics.map((m) => m.stage))];
 
+    // Calculate per-stage statistics
     const stageStatistics = stages.map((stage) => this.calculateStageStatistics(stage));
 
     // Identify bottlenecks (stages taking >20% of total time)
@@ -320,11 +342,12 @@ export class PerformanceMonitor {
     const threshold = totalDurationMs * 0.2;
     for (const stats of stageStatistics) {
       if (stats.totalDurationMs > threshold) {
-        bottlenecks.push(`${stats.stage} (${((stats.totalDurationMs / totalDurationMs) * 100).toFixed(1)}%)`);
+        const percentage = ((stats.totalDurationMs / totalDurationMs) * 100).toFixed(1);
+        bottlenecks.push(`${stats.stage} (${percentage}%)`);
       }
     }
 
-    // Calculate average memory usage
+    // Calculate average memory usage across all operations
     const memoryUsages = completedMetrics.filter((m) => m.memoryUsedMB).map((m) => m.memoryUsedMB ?? 0);
     const avgMemoryUsageMB = memoryUsages.length > 0 ? memoryUsages.reduce((sum, m) => sum + m, 0) / memoryUsages.length : 0;
 

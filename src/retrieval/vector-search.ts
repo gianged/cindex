@@ -71,11 +71,12 @@ interface DependencyRow {
  * - Workspace internal dependencies (from workspace_dependencies table, resolved to repos)
  *
  * Implements cycle detection and respects depth limits.
+ * Used in boundary-aware scope mode for automatic dependency inclusion.
  *
  * @param db - Database connection pool
  * @param startRepoId - Starting repository ID
- * @param maxDepth - Maximum traversal depth (default: 2)
- * @param excludedTypes - Repository types to exclude from results
+ * @param maxDepth - Maximum traversal depth (default: 2 hops)
+ * @param excludedTypes - Repository types to exclude from results (e.g., 'reference', 'documentation')
  * @returns Array of repository IDs including start repo and all dependencies within depth
  */
 const traverseDependencyGraph = async (
@@ -158,7 +159,15 @@ const traverseDependencyGraph = async (
 
 /**
  * Determine which repository IDs to include based on search filter
+ *
  * Stage 0: Scope Filtering
+ * Returns null for global scope (no filtering), or an array of repo IDs to include.
+ * Empty array means no repositories match (all excluded by type).
+ *
+ * @param db - Database connection pool
+ * @param filter - Search filter configuration
+ * @returns Array of repo IDs to include, or null for no filtering
+ * @throws Error if required parameters are missing (repo_id for 'repository' scope, etc.)
  */
 const determineSearchScope = async (db: Pool, filter: SearchFilter): Promise<string[] | null> => {
   const {
@@ -285,6 +294,11 @@ const determineSearchScope = async (db: Pool, filter: SearchFilter): Promise<str
 
 /**
  * Build SQL WHERE clause for repository filtering
+ *
+ * Converts scope determination result into SQL WHERE clause fragment.
+ *
+ * @param repoIds - Repository IDs from determineSearchScope(), or null for no filtering
+ * @returns Object with SQL clause fragment and parameters array
  */
 const buildRepoFilter = (repoIds: string[] | null): { clause: string; params: string[] } => {
   if (repoIds === null) {

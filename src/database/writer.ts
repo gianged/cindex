@@ -24,9 +24,15 @@ import {
 import { type BatchInsertResult } from '@/types/indexing';
 
 /**
- * Error thrown during database write operations
+ * Error thrown during database write operations with context information
  */
 export class DatabaseWriteError extends CindexError {
+  /**
+   * Create a new database write error
+   * @param table - Table name where write operation failed
+   * @param context - Additional context about the operation
+   * @param cause - Original error that caused the failure
+   */
   constructor(
     public readonly table: string,
     public readonly context: string,
@@ -42,11 +48,16 @@ export class DatabaseWriteError extends CindexError {
 }
 
 /**
- * Database writer with batch optimization
+ * Database writer with batch optimization and transaction support
+ * Handles all write operations for the indexing pipeline
  */
 export class DatabaseWriter {
   private static readonly DEFAULT_BATCH_SIZE = 100;
 
+  /**
+   * Create a new database writer instance
+   * @param pool - PostgreSQL connection pool for query execution
+   */
   constructor(private readonly pool: pg.Pool) {}
 
   /**
@@ -170,22 +181,22 @@ export class DatabaseWriter {
   };
 
   /**
-   * Insert a single batch of chunks
-   *
-   * Uses multi-row VALUES for efficient insertion.
-   *
+   * Insert a single batch of chunks with multi-row INSERT optimization
+   * Uses parameterized queries for security and PostgreSQL multi-row syntax for performance
    * @param chunks - Batch of chunks to insert
+   * @throws {Error} If query execution fails
    */
   private insertChunkBatch = async (chunks: Omit<CodeChunk, 'id'>[]): Promise<void> => {
     if (chunks.length === 0) return;
 
-    // Build multi-row INSERT statement
+    // Build parameterized multi-row INSERT statement for batch efficiency
     const placeholders: string[] = [];
     const values: unknown[] = [];
 
     let paramIndex = 1;
 
     for (const chunk of chunks) {
+      // Create placeholder for 14 columns per chunk
       placeholders.push(
         `($${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)})`
       );
@@ -198,6 +209,7 @@ export class DatabaseWriter {
         chunk.start_line,
         chunk.end_line,
         chunk.language,
+        // Convert array to PostgreSQL vector format [1,2,3]
         chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
         chunk.token_count,
         chunk.metadata ? JSON.stringify(chunk.metadata) : null,
@@ -283,9 +295,9 @@ export class DatabaseWriter {
   };
 
   /**
-   * Insert a single batch of symbols
-   *
+   * Insert a single batch of symbols with multi-row INSERT optimization
    * @param symbols - Batch of symbols to insert
+   * @throws {Error} If query execution fails
    */
   private insertSymbolBatch = async (symbols: Omit<CodeSymbol, 'id'>[]): Promise<void> => {
     if (symbols.length === 0) return;
@@ -442,9 +454,9 @@ export class DatabaseWriter {
   };
 
   /**
-   * Insert a single batch of workspaces
-   *
+   * Insert a single batch of workspaces with UPSERT support for re-indexing
    * @param workspaces - Batch of workspaces to insert
+   * @throws {Error} If query execution fails
    */
   private insertWorkspaceBatch = async (workspaces: Omit<Workspace, 'id' | 'indexed_at'>[]): Promise<void> => {
     if (workspaces.length === 0) return;
@@ -556,9 +568,9 @@ export class DatabaseWriter {
   };
 
   /**
-   * Insert a single batch of workspace aliases
-   *
+   * Insert a single batch of workspace aliases for import resolution
    * @param aliases - Batch of aliases to insert
+   * @throws {Error} If query execution fails
    */
   private insertWorkspaceAliasBatch = async (aliases: Omit<WorkspaceAlias, 'id'>[]): Promise<void> => {
     if (aliases.length === 0) return;
@@ -656,9 +668,9 @@ export class DatabaseWriter {
   };
 
   /**
-   * Insert a single batch of workspace dependencies
-   *
+   * Insert a single batch of workspace dependencies with UPSERT for re-indexing
    * @param dependencies - Batch of dependencies to insert
+   * @throws {Error} If query execution fails
    */
   private insertWorkspaceDependencyBatch = async (
     dependencies: Omit<WorkspaceDependency, 'id' | 'indexed_at'>[]
@@ -761,9 +773,9 @@ export class DatabaseWriter {
   };
 
   /**
-   * Insert a single batch of services
-   *
+   * Insert a single batch of services with UPSERT for microservice re-indexing
    * @param services - Batch of services to insert
+   * @throws {Error} If query execution fails
    */
   private insertServiceBatch = async (services: Omit<Service, 'id' | 'indexed_at'>[]): Promise<void> => {
     if (services.length === 0) return;
@@ -870,9 +882,9 @@ export class DatabaseWriter {
   };
 
   /**
-   * Insert a single batch of cross-repo dependencies
-   *
+   * Insert a single batch of cross-repo dependencies for microservice tracking
    * @param dependencies - Batch of dependencies to insert
+   * @throws {Error} If query execution fails
    */
   private insertCrossRepoDependencyBatch = async (
     dependencies: Omit<CrossRepoDependency, 'id' | 'indexed_at'>[]
@@ -952,10 +964,10 @@ export class DatabaseWriter {
   };
 
   /**
-   * Batch update API endpoints for multiple services
-   *
+   * Batch update API endpoints for multiple services sequentially
    * @param updates - Map of service_id to parsed endpoints
-   * @returns Batch update result with stats
+   * @returns Batch update result with success/failure counts
+   * @throws {DatabaseWriteError} If any update fails (logged but not thrown)
    */
   public updateServiceAPIEndpointsBatch = async (
     updates: Map<string, ParsedAPIEndpoint[]>
@@ -1007,18 +1019,17 @@ export class DatabaseWriter {
   };
 
   /**
-   * Delete all indexed data for a repository
-   *
-   * Useful for re-indexing or cleanup operations.
-   *
+   * Delete all indexed data for a repository with cascade handling
+   * Useful for re-indexing or cleanup operations
    * @param repoPath - Repository path to delete
-   * @returns Number of records deleted per table
+   * @returns Number of records deleted per table (files, chunks, symbols)
+   * @throws {DatabaseWriteError} If deletion fails
    */
   public deleteRepository = async (repoPath: string): Promise<{ files: number; chunks: number; symbols: number }> => {
     logger.info('Deleting repository data', { repo: repoPath });
 
     try {
-      // Delete in order to respect foreign key constraints
+      // Delete in reverse dependency order to respect foreign key constraints
       const symbolsResult = await this.pool.query('DELETE FROM code_symbols WHERE repo_path = $1', [repoPath]);
 
       const chunksResult = await this.pool.query('DELETE FROM code_chunks WHERE repo_path = $1', [repoPath]);

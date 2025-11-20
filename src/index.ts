@@ -2,7 +2,19 @@
 
 /**
  * cindex - RAG MCP Server for Code Context
- * Entry point for the MCP server
+ *
+ * Entry point for the Model Context Protocol (MCP) server that provides semantic code search
+ * and context retrieval for large codebases. Supports single repositories, monorepos, and
+ * multi-project setups with up to 1M+ lines of code.
+ *
+ * Architecture:
+ * - Initializes database (PostgreSQL + pgvector), Ollama client, and MCP server
+ * - Registers 13 MCP tools for code search, indexing, and context retrieval
+ * - Manages lifecycle (startup health checks, graceful shutdown)
+ * - Communicates via stdio transport for Claude Code integration
+ *
+ * @see {@link https://github.com/gianged/cindex} Project repository
+ * @see {@link docs/overview.md} Complete technical specification
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -55,7 +67,7 @@ import { createOllamaClient } from '@utils/ollama';
 import { ProgressTracker } from '@utils/progress';
 import { type IndexingOptions } from '@/types/indexing';
 
-// Derive TypeScript types from Zod schemas
+// Derive TypeScript types from Zod schemas for compile-time type safety
 type SearchCodebaseInput = z.infer<typeof SearchCodebaseSchema>;
 type GetFileContextInput = z.infer<typeof GetFileContextSchema>;
 type FindSymbolInput = z.infer<typeof FindSymbolSchema>;
@@ -71,26 +83,43 @@ type FindCrossServiceCallsInput = z.infer<typeof FindCrossServiceCallsSchema>;
 type SearchAPIContractsInput = z.infer<typeof SearchAPIContractsSchema>;
 
 /**
- * Application state
+ * Global application state container
+ *
+ * Holds initialized clients and configuration for the MCP server lifecycle.
+ * Set during startup and accessed by tool handlers for database/API operations.
  */
 interface AppState {
+  /** Loaded and validated environment configuration */
   config: ReturnType<typeof loadConfig>;
+  /** PostgreSQL client with connection pooling */
   db: ReturnType<typeof createDatabaseClient>;
+  /** Ollama API client for embeddings and summaries */
   ollama: ReturnType<typeof createOllamaClient>;
+  /** MCP server instance with registered tools */
   server: McpServer;
 }
 
+/**
+ * Global application state, initialized during server startup
+ * Null until initializeServer() completes successfully
+ */
 let appState: AppState | null = null;
 
 /**
  * Create IndexingOrchestrator for a specific repository
  *
  * Factory function that instantiates all required dependencies for the indexing pipeline.
- * Called on-demand when index_repository tool is invoked.
+ * Creates fresh instances for each indexing operation to ensure clean state and avoid
+ * cross-repository contamination during parallel indexing operations.
  *
- * @param repoPath - Repository root path
- * @param options - Indexing options
- * @returns Configured orchestrator instance
+ * Called on-demand when index_repository tool is invoked. The orchestrator coordinates
+ * the complete indexing workflow: file discovery → parsing → chunking → summarization
+ * → embedding generation → symbol extraction → database persistence.
+ *
+ * @param repoPath - Absolute path to repository root directory
+ * @param options - Indexing configuration (repo_id, repo_type, incremental mode, etc.)
+ * @returns Fully configured orchestrator instance ready for indexing
+ * @throws {Error} If application state is not initialized (server startup failed)
  */
 const createOrchestrator = (repoPath: string, options: IndexingOptions): IndexingOrchestrator => {
   if (!appState) {
@@ -99,9 +128,9 @@ const createOrchestrator = (repoPath: string, options: IndexingOptions): Indexin
 
   const { config, db, ollama } = appState;
 
-  // Create required components
+  // Create pipeline components with appropriate configuration
   const fileWalker = new FileWalker(repoPath, options);
-  const parser = new CodeParser(); // Default Language.Unknown, language set per-file
+  const parser = new CodeParser(); // Language detection happens per-file via tree-sitter
   const chunker = new CodeChunker();
   const summaryGenerator = new FileSummaryGenerator(ollama, config.summary);
   const embeddingGenerator = new EmbeddingGenerator(ollama, config.embedding);
@@ -109,9 +138,10 @@ const createOrchestrator = (repoPath: string, options: IndexingOptions): Indexin
   const dbWriter = new DatabaseWriter(db.getPool());
   const progressTracker = new ProgressTracker();
 
-  // Create orchestrator (API parsing components optional for now)
+  // Assemble orchestrator with all pipeline stages
+  // Database client enables incremental indexing via hash comparison
   return new IndexingOrchestrator(
-    db, // Add database client for incremental indexing
+    db,
     fileWalker,
     parser,
     chunker,
@@ -124,41 +154,56 @@ const createOrchestrator = (repoPath: string, options: IndexingOptions): Indexin
 };
 
 /**
- * Initialize the MCP server
+ * Initialize the MCP server and all dependencies
+ *
+ * Performs complete server startup sequence with health checks for all external dependencies.
+ * This function runs synchronously during server startup and blocks until all resources are ready.
+ *
+ * Startup sequence:
+ * 1. Load and validate environment configuration (POSTGRES_*, OLLAMA_HOST, model names)
+ * 2. Initialize logger and display startup banner
+ * 3. Create database and Ollama clients
+ * 4. Perform health checks (database connection, pgvector extension, Ollama availability)
+ * 5. Create MCP server instance
+ * 6. Register all 13 MCP tools with input schemas and handlers
+ *
+ * @returns Initialized application state (config, db, ollama, server)
+ * @throws {CindexError} If configuration is invalid or dependencies are unavailable
+ * @throws {Error} For unexpected initialization failures
  */
 const initializeServer = async (): Promise<AppState> => {
-  // Load and validate configuration
+  // Load configuration from environment variables
   logger.info('Loading configuration...');
   const config = loadConfig();
   validateConfig(config);
 
-  // Initialize logger with configured level
+  // Set log level from config (defaults to INFO)
   initLogger('INFO');
 
-  // Log startup banner
+  // Display startup banner with version and model information
   logger.startup({
     version: '0.1.0',
     models: [config.embedding.model, config.summary.model],
   });
 
-  // Create clients
+  // Initialize external clients (PostgreSQL + pgvector, Ollama)
   logger.info('Initializing clients...');
   const db = createDatabaseClient(config.database);
   const ollama = createOllamaClient(config.ollama);
 
-  // Test Ollama connection and models
+  // Verify Ollama is running and models are available
   logger.info('Checking Ollama connection...');
   await ollama.healthCheck(config.embedding.model, config.summary.model);
 
-  // Test database connection
+  // Establish database connection pool
   logger.info('Connecting to database...');
   await db.connect();
 
-  // Verify pgvector and schema
+  // Verify pgvector extension and schema tables exist with correct vector dimensions
   logger.info('Verifying database schema...');
   await db.healthCheck(config.embedding.dimensions);
 
-  // Create MCP server
+  // Create MCP server instance with metadata
   const server = new McpServer(
     {
       name: 'cindex',
@@ -166,15 +211,17 @@ const initializeServer = async (): Promise<AppState> => {
     },
     {
       capabilities: {
-        tools: {},
+        tools: {}, // Tool list generated dynamically from registered tools
       },
     }
   );
 
-  // Register MCP tools
+  // Register all MCP tools with Zod schemas for input validation
   logger.debug('Registering MCP tools...');
 
-  // 1. search_codebase - Semantic code search
+  // Core MCP Tools (4): Search, context retrieval, symbol lookup, indexing
+
+  // 1. search_codebase - Semantic code search with 9-stage retrieval pipeline
   server.registerTool(
     'search_codebase',
     {
@@ -207,7 +254,7 @@ const initializeServer = async (): Promise<AppState> => {
     async (params: FindSymbolInput) => findSymbolMCP(db.getPool(), params)
   );
 
-  // 4. index_repository - Index or re-index a codebase
+  // 4. index_repository - Index or re-index a codebase with progress tracking
   server.registerTool(
     'index_repository',
     {
@@ -216,12 +263,12 @@ const initializeServer = async (): Promise<AppState> => {
       inputSchema: toMcpSchema(IndexRepositorySchema),
     },
     async (params: IndexRepositoryInput) => {
-      // Note: params is IndexRepositoryInput (snake_case), but IndexingOptions expects camelCase.
-      // indexRepositoryTool handles the conversion. FileWalker accepts Partial<IndexingOptions>
-      // and only uses the properties it needs, so this type assertion is safe.
+      // Create fresh orchestrator instance for this indexing operation
+      // Type assertion is safe: FileWalker only uses specific properties from IndexingOptions
       const orchestrator = createOrchestrator(params.repo_path, params as unknown as IndexingOptions);
 
-      // Create progress callback that sends MCP logging messages
+      // Progress callback sends real-time updates to MCP client via logging messages
+      // Enables Claude Code to display indexing progress in UI
       const progressCallback = (progress: {
         stage: string;
         current: number;
@@ -229,7 +276,7 @@ const initializeServer = async (): Promise<AppState> => {
         message: string;
         eta_seconds?: number;
       }) => {
-        // Send progress as structured logging message to MCP client
+        // Format progress as structured MCP logging message
         server
           .sendLoggingMessage({
             level: 'info',
@@ -246,7 +293,7 @@ const initializeServer = async (): Promise<AppState> => {
             },
           })
           .catch((err: unknown) => {
-            // Don't fail indexing if notification fails
+            // Log notification failures but don't interrupt indexing
             logger.error('Failed to send progress notification', { error: err });
           });
       };
@@ -254,6 +301,8 @@ const initializeServer = async (): Promise<AppState> => {
       return indexRepositoryMCP(orchestrator, params, progressCallback);
     }
   );
+
+  // Multi-Project Management Tools (9): Repository listing, workspace/service queries, cross-reference tracking
 
   // 5. delete_repository - Remove indexed repository data
   server.registerTool(
@@ -343,7 +392,7 @@ const initializeServer = async (): Promise<AppState> => {
     async (params: FindCrossServiceCallsInput) => findCrossServiceCallsMCP(db.getPool(), params)
   );
 
-  // 13. search_api_contracts - Search API endpoints
+  // 13. search_api_contracts - Search API endpoints with semantic search
   server.registerTool(
     'search_api_contracts',
     {
@@ -360,53 +409,82 @@ const initializeServer = async (): Promise<AppState> => {
 };
 
 /**
- * Shutdown handler - cleanup resources
+ * Graceful shutdown handler for SIGINT and SIGTERM signals
+ *
+ * Ensures clean resource cleanup when server is terminated:
+ * - Closes database connection pool (releases all connections)
+ * - Flushes logger buffers
+ * - Exits process with success code
+ *
+ * Registered in main() to handle Ctrl+C (SIGINT) and kill (SIGTERM) signals.
+ *
+ * @param signal - Signal name that triggered shutdown (SIGINT, SIGTERM)
  */
 const shutdown = async (signal: string): Promise<void> => {
   logger.info(`Received ${signal}, shutting down...`);
 
   if (appState) {
     try {
+      // Close database connection pool and release all connections
       await appState.db.close();
       logger.info('Database connection closed');
     } catch (error) {
+      // Log but don't block shutdown on cleanup errors
       logger.errorWithStack('Error closing database', error instanceof Error ? error : new Error(String(error)));
     }
   }
 
+  // Flush logger and close file handles
   logger.shutdown();
   process.exit(0);
 };
 
 /**
- * Main entry point
+ * Main entry point and server lifecycle coordinator
+ *
+ * Orchestrates complete server startup and operation:
+ * 1. Initialize server and dependencies (database, Ollama, MCP tools)
+ * 2. Register signal handlers for graceful shutdown
+ * 3. Connect to stdio transport for MCP communication
+ * 4. Enter event loop to handle incoming MCP requests
+ *
+ * Error handling:
+ * - CindexError: User-friendly formatted messages (config errors, missing dependencies)
+ * - Other errors: Full stack traces for debugging unexpected failures
+ *
+ * Exit codes:
+ * - 0: Graceful shutdown via signal handler
+ * - 1: Initialization failure (exits immediately)
  */
 const main = async (): Promise<void> => {
   try {
-    // Initialize server
+    // Initialize server and all dependencies
     appState = await initializeServer();
 
-    // Setup signal handlers
+    // Register signal handlers for clean shutdown
+    // Ctrl+C in terminal → SIGINT
     process.on('SIGINT', () => {
       void shutdown('SIGINT');
     });
+    // kill <pid> → SIGTERM
     process.on('SIGTERM', () => {
       void shutdown('SIGTERM');
     });
 
-    // Connect server to stdio transport
+    // Connect MCP server to stdio transport (reads stdin, writes stdout)
+    // Claude Code communicates with server via JSON-RPC over stdio
     const transport = new StdioServerTransport();
     await appState.server.connect(transport);
 
     logger.info('cindex MCP server is ready');
     logger.info('Waiting for requests...');
   } catch (error) {
-    // Handle initialization errors
+    // Handle initialization errors with appropriate formatting
     if (error instanceof CindexError) {
-      // User-friendly error message
+      // User-friendly error message with resolution hints
       console.error('\n' + error.getFormattedMessage());
     } else {
-      // Unexpected error
+      // Unexpected error - show full stack trace for debugging
       logger.errorWithStack(
         'Unexpected error during initialization',
         error instanceof Error ? error : new Error(String(error))
@@ -417,5 +495,5 @@ const main = async (): Promise<void> => {
   }
 };
 
-// Start the server
+// Start the server - entry point execution
 void main();

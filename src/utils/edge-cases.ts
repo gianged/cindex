@@ -19,7 +19,13 @@ import { logger } from '@utils/logger';
 import { type DiscoveredFile } from '@/types/indexing';
 
 /**
- * Circular dependency tracker
+ * Circular dependency tracker for import chain traversal
+ *
+ * Maintains two data structures:
+ * - visitedPaths: All files visited during traversal (Set)
+ * - currentPath: Current import chain being traversed (Array/Stack)
+ *
+ * Used to prevent infinite loops when following import chains.
  */
 export class CircularDependencyTracker {
   private visitedPaths = new Set<string>();
@@ -117,45 +123,52 @@ export interface EncodingDetectionResult {
 }
 
 /**
- * Detect file encoding
+ * Detect file encoding using BOM and heuristics
  *
- * Detects common encodings:
+ * Detection strategy:
+ * 1. Check for BOM (Byte Order Mark) - most reliable
+ * 2. Check for null bytes (indicates UTF-16 or binary)
+ * 3. Try UTF-8 decoding (default for text files)
+ * 4. Fall back to Latin1 if UTF-8 fails
+ *
+ * Supported encodings:
  * - UTF-8 (with or without BOM)
  * - UTF-16 (LE/BE)
  * - ISO-8859-1 (Latin1)
- * - Windows-1252
+ * - Binary (detected, not decoded)
  *
- * @param buffer - File buffer
- * @returns Encoding detection result
+ * @param buffer - File buffer to analyze
+ * @returns Encoding detection result with confidence score
  */
 export const detectEncoding = (buffer: Buffer): EncodingDetectionResult => {
-  // Check for BOM (Byte Order Mark)
+  // Step 1: Check for BOM (Byte Order Mark) - 100% confidence
   if (buffer.length >= 3) {
-    // UTF-8 BOM
+    // UTF-8 BOM: EF BB BF
     if (buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
       return { encoding: 'utf-8', confidence: 1.0, hasInvalidChars: false };
     }
   }
 
   if (buffer.length >= 2) {
-    // UTF-16 LE BOM
+    // UTF-16 LE BOM: FF FE
     if (buffer[0] === 0xff && buffer[1] === 0xfe) {
       return { encoding: 'utf-16le', confidence: 1.0, hasInvalidChars: false };
     }
-    // UTF-16 BE BOM
+    // UTF-16 BE BOM: FE FF
     if (buffer[0] === 0xfe && buffer[1] === 0xff) {
       return { encoding: 'utf-16be', confidence: 1.0, hasInvalidChars: false };
     }
   }
 
-  // No BOM: use heuristics
-  // Check for null bytes (indicates UTF-16 or binary)
+  // Step 2: No BOM found, use heuristics
+  // Check for null bytes (0x00) - indicates UTF-16 or binary
   const hasNullBytes = buffer.includes(0x00);
   if (hasNullBytes) {
-    // Check if every other byte is null (UTF-16)
-    let utf16LELikely = true;
-    let utf16BELikely = true;
+    // Check alternating null byte pattern (characteristic of UTF-16)
+    let utf16LELikely = true; // Null bytes at odd positions
+    let utf16BELikely = true; // Null bytes at even positions
 
+    // Sample first 1000 bytes for performance
     for (let i = 0; i < Math.min(buffer.length, 1000); i += 2) {
       if (buffer[i] === 0x00 && buffer[i + 1] !== 0x00) {
         utf16BELikely = false;
@@ -172,19 +185,19 @@ export const detectEncoding = (buffer: Buffer): EncodingDetectionResult => {
       return { encoding: 'utf-16be', confidence: 0.8, hasInvalidChars: false };
     }
 
-    // Has null bytes but not UTF-16 pattern: likely binary
+    // Has null bytes but not UTF-16 pattern: likely binary file
     return { encoding: 'binary', confidence: 0.9, hasInvalidChars: true };
   }
 
-  // Check for invalid UTF-8 sequences
+  // Step 3: Try UTF-8 decoding (most common for text files)
   const content = buffer.toString('utf-8');
-  const hasInvalidChars = content.includes('\ufffd'); // Replacement character
+  const hasInvalidChars = content.includes('\ufffd'); // U+FFFD replacement character
 
   if (!hasInvalidChars) {
     return { encoding: 'utf-8', confidence: 0.95, hasInvalidChars: false };
   }
 
-  // Has invalid UTF-8: try Latin1
+  // Step 4: UTF-8 failed, try Latin1 (ISO-8859-1)
   const latin1Content = buffer.toString('latin1');
   const validLatin1 = !latin1Content.includes('\ufffd');
 
@@ -192,7 +205,7 @@ export const detectEncoding = (buffer: Buffer): EncodingDetectionResult => {
     return { encoding: 'latin1', confidence: 0.7, hasInvalidChars: false };
   }
 
-  // Fallback: UTF-8 with invalid chars
+  // Fallback: UTF-8 with invalid characters (may be corrupted)
   return { encoding: 'utf-8', confidence: 0.5, hasInvalidChars: true };
 };
 
@@ -272,14 +285,17 @@ export const handleTreeSitterError = (
 };
 
 /**
- * Memory usage tracker
+ * Memory usage tracker for detecting memory leaks
+ *
+ * Periodically samples heap usage and tracks high water mark.
+ * Logs warnings if memory usage exceeds 1GB threshold.
  */
 export class MemoryTracker {
   private highWaterMark = 0;
   private checkInterval: NodeJS.Timeout | null = null;
 
   /**
-   * Start monitoring memory usage
+   * Start monitoring memory usage at regular intervals
    *
    * @param intervalMs - Check interval in milliseconds (default: 5000)
    */
@@ -288,11 +304,12 @@ export class MemoryTracker {
       const memUsage = process.memoryUsage();
       const heapUsed = memUsage.heapUsed;
 
+      // Track peak memory usage
       if (heapUsed > this.highWaterMark) {
         this.highWaterMark = heapUsed;
       }
 
-      // Warn if heap usage exceeds 1GB
+      // Warn if heap usage exceeds 1GB threshold
       if (heapUsed > 1024 * 1024 * 1024) {
         logger.warn('High memory usage detected', {
           heapUsedMB: Math.round(heapUsed / 1024 / 1024),
@@ -414,22 +431,22 @@ export const safeOperation = async <T>(
 };
 
 /**
- * Validate file for indexing
+ * Validate file for indexing safety
  *
- * Performs comprehensive validation:
- * - Check encoding
- * - Check file size
- * - Check for malformed content
+ * Performs comprehensive validation to prevent issues:
+ * - File size limits (prevents OOM)
+ * - Control character detection (prevents binary files)
+ * - Line length limits (prevents minified files)
  *
- * @param file - Discovered file
- * @param content - File content (optional)
- * @returns Validation result
+ * @param file - Discovered file metadata
+ * @param content - File content (optional, for content-based checks)
+ * @returns Validation result with reason for rejection
  */
 export const validateFileForIndexing = (
   file: DiscoveredFile,
   content?: string
 ): { valid: boolean; reason?: string } => {
-  // Check 1: File size (already validated by FileWalker, but double-check)
+  // Check 1: File size (defense-in-depth, already checked by FileWalker)
   if (file.line_count > 10000) {
     return {
       valid: false,
@@ -437,16 +454,18 @@ export const validateFileForIndexing = (
     };
   }
 
-  // Check 2: Content validation (if provided)
+  // Check 2: Content validation (if content provided)
   if (content) {
-    // Check for suspicious patterns
+    // Check for suspicious control characters (indicates binary or corrupted file)
     const suspiciousPatterns = [
+      // Control characters except: \n (0x0A), \t (0x09), \r (0x0D)
       // eslint-disable-next-line no-control-regex
-      /[\x00-\x08\x0B\x0C\x0E-\x1F]/g, // Control characters (except newline, tab, carriage return)
+      /[\x00-\x08\x0B\x0C\x0E-\x1F]/g,
     ];
 
     for (const pattern of suspiciousPatterns) {
       const matches = content.match(pattern);
+      // Allow a few occurrences (false positives), but reject if excessive
       if (matches && matches.length > 10) {
         return {
           valid: false,
@@ -455,7 +474,7 @@ export const validateFileForIndexing = (
       }
     }
 
-    // Check for extremely long lines (>10000 chars)
+    // Check for extremely long lines (indicates minified code or data files)
     const lines = content.split('\n');
     const veryLongLines = lines.filter((line) => line.length > 10000);
     if (veryLongLines.length > 0) {
@@ -470,11 +489,18 @@ export const validateFileForIndexing = (
 };
 
 /**
- * Error recovery strategies
+ * Error recovery strategies for malformed files
+ *
+ * Provides fallback mechanisms when standard parsing fails.
  */
 export const errorRecoveryStrategies = {
   /**
    * Handle encoding errors by trying alternative encodings
+   *
+   * Attempts to decode buffer with multiple encodings until one succeeds.
+   *
+   * @param buffer - File buffer with encoding issues
+   * @returns Decoded content or undefined if all encodings fail
    */
   handleEncodingError: (buffer: Buffer): string | undefined => {
     const encodings: BufferEncoding[] = ['utf-8', 'latin1', 'utf-16le'];
@@ -497,6 +523,12 @@ export const errorRecoveryStrategies = {
 
   /**
    * Extract minimal metadata from malformed files
+   *
+   * Uses regex patterns to detect if file contains code,
+   * even when tree-sitter parsing fails.
+   *
+   * @param fileContent - File content to analyze
+   * @returns Metadata with hasCode flag
    */
   extractMinimalMetadata: (fileContent: string): { hasCode: boolean; language?: string } => {
     // Simple heuristics to detect if file contains code
@@ -515,12 +547,18 @@ export const errorRecoveryStrategies = {
 
   /**
    * Clean malformed code by removing invalid characters
+   *
+   * Removes control characters that can break parsing,
+   * while preserving valid whitespace.
+   *
+   * @param content - File content with invalid characters
+   * @returns Cleaned content safe for parsing
    */
   cleanMalformedCode: (content: string): string => {
-    // Remove null bytes
+    // Remove null bytes (0x00)
     let cleaned = content.replace(/\0/g, '');
 
-    // Remove other control characters (except newline, tab, carriage return)
+    // Remove control characters except: newline (0x0A), tab (0x09), carriage return (0x0D)
     // eslint-disable-next-line no-control-regex
     cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 

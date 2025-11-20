@@ -22,9 +22,13 @@ import { type DeduplicationResult, type RelevantChunk } from '@/types/retrieval'
 /**
  * Calculate cosine similarity between two embedding vectors
  *
+ * Formula: similarity = (vec1 · vec2) / (||vec1|| * ||vec2||)
+ * Where · is dot product and ||v|| is Euclidean norm (magnitude).
+ *
  * @param vec1 - First embedding vector
  * @param vec2 - Second embedding vector
- * @returns Cosine similarity score (0.0-1.0)
+ * @returns Cosine similarity score (0.0-1.0, where 1.0 = identical)
+ * @throws Error if vectors have different dimensions
  */
 const cosineSimilarity = (vec1: number[], vec2: number[]): number => {
   if (vec1.length !== vec2.length) {
@@ -148,7 +152,13 @@ export const deduplicateChunksBase = (chunks: RelevantChunk[], dedupThreshold = 
 
 /**
  * Priority multipliers for different repository types
- * Higher values = higher priority in search results
+ * Higher values = higher priority in search results (used in weighted scoring)
+ *
+ * Design rationale:
+ * - User's own code (monolithic, microservice, monorepo): 1.0 (highest priority)
+ * - User's libraries: 0.9 (slightly lower, but still relevant)
+ * - Reference repos (external frameworks): 0.6 (learning/comparison only)
+ * - Documentation: 0.5 (lowest priority, markdown text)
  */
 const REPO_TYPE_PRIORITY: Record<RepositoryType, number> = {
   monolithic: 1.0, // User's main code
@@ -161,6 +171,10 @@ const REPO_TYPE_PRIORITY: Record<RepositoryType, number> = {
 
 /**
  * Get repository type for a repo_id
+ *
+ * @param db - Database connection pool
+ * @param repoId - Repository ID to look up
+ * @returns Repository type (defaults to 'monolithic' if not found)
  */
 const getRepoType = async (db: Pool, repoId: string): Promise<RepositoryType> => {
   const result: QueryResult<RepoTypeQueryResult> = await db.query<RepoTypeQueryResult>(
@@ -181,6 +195,13 @@ const getRepoType = async (db: Pool, repoId: string): Promise<RepositoryType> =>
 
 /**
  * Calculate priority multiplier for a chunk based on its repository type
+ *
+ * Uses in-memory cache to avoid repeated database queries for the same repo_id.
+ *
+ * @param db - Database connection pool
+ * @param chunk - Code chunk with repo_id
+ * @param repoTypeCache - In-memory cache of repo_id → RepositoryType
+ * @returns Priority multiplier (0.5-1.0)
  */
 const calculatePriority = async (
   db: Pool,
@@ -206,7 +227,13 @@ const calculatePriority = async (
 
 /**
  * Apply priority multipliers to search results
- * Sorts by: similarity_score * priority_multiplier
+ *
+ * Sorts by weighted score: similarity_score * priority_multiplier
+ * This ensures user's own code ranks higher than reference repos at the same similarity level.
+ *
+ * @param db - Database connection pool
+ * @param results - Search results with similarity scores
+ * @returns Sorted results by weighted score (descending)
  */
 export const prioritizeResults = async <T extends CodeChunk>(
   db: Pool,
@@ -231,6 +258,13 @@ export const prioritizeResults = async <T extends CodeChunk>(
 
 /**
  * Check if two chunks are duplicates based on embedding similarity
+ *
+ * Uses cosine similarity to compare chunk embeddings.
+ *
+ * @param chunk1 - First chunk
+ * @param chunk2 - Second chunk
+ * @param threshold - Similarity threshold (typically 0.92)
+ * @returns true if chunks are duplicates (similarity > threshold)
  */
 const areDuplicates = (chunk1: CodeChunk, chunk2: CodeChunk, threshold: number): boolean => {
   if (!chunk1.embedding || !chunk2.embedding) {
@@ -254,6 +288,16 @@ const areDuplicates = (chunk1: CodeChunk, chunk2: CodeChunk, threshold: number):
 
 /**
  * Deduplicate chunks, handling same-repo vs cross-repo duplicates differently
+ *
+ * Deduplication strategy:
+ * - Same repository: Remove true duplicates (keep higher scoring chunk)
+ * - Different repositories: Keep both, but tag reference repo chunks as similar_to_main_code
+ * - Reference vs main code: Replace reference with main code (main code takes priority)
+ *
+ * @param db - Database connection pool
+ * @param chunks - Search results with similarity scores
+ * @param dedupThreshold - Similarity threshold for duplicates (default: 0.92)
+ * @returns Deduplicated chunks with metadata tags
  */
 export const deduplicateChunks = async (
   db: Pool,
@@ -330,6 +374,12 @@ export const deduplicateChunks = async (
 
 /**
  * Group results by repository type for context assembly
+ *
+ * Categorizes search results into:
+ * - primary_code: User's main code (monolithic, microservice, monorepo)
+ * - libraries: User's own libraries
+ * - references: External frameworks cloned for learning
+ * - documentation: Markdown documentation files
  */
 export interface GroupedResults<T> {
   primary_code: SearchResult<T>[]; // monolithic, microservice, monorepo
@@ -338,6 +388,13 @@ export interface GroupedResults<T> {
   documentation: SearchResult<T>[]; // documentation
 }
 
+/**
+ * Group search results by repository type
+ *
+ * @param db - Database connection pool
+ * @param results - Search results to group
+ * @returns Grouped results by repository type category
+ */
 export const groupByRepoType = async <T extends CodeChunk>(
   db: Pool,
   results: SearchResult<T>[]
@@ -391,6 +448,14 @@ export const groupByRepoType = async <T extends CodeChunk>(
 
 /**
  * Limit reference and documentation results to prevent context pollution
+ *
+ * Caps the number of reference and documentation results while keeping all primary code.
+ * This prevents the context from being dominated by external framework examples.
+ *
+ * @param grouped - Grouped search results
+ * @param maxReferences - Maximum reference repo results (default: 5)
+ * @param maxDocumentation - Maximum documentation results (default: 3)
+ * @returns Grouped results with limits applied
  */
 export const limitSecondaryResults = <T>(
   grouped: GroupedResults<T>,

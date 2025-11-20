@@ -44,11 +44,17 @@ export interface SearchAPIContractsOutput {
 /**
  * Search API contracts MCP tool implementation
  *
+ * Performs semantic search across API endpoint definitions (REST, GraphQL, gRPC).
+ * Searches endpoint paths, operation IDs, descriptions, and parameters using
+ * vector similarity. Supports filtering by API type, service, repository, and
+ * deprecation status.
+ *
  * @param db - Database connection pool
  * @param ollama - Ollama client for embedding generation
- * @param embeddingConfig - Embedding configuration
- * @param input - Search API contracts parameters
- * @returns Formatted API contract results
+ * @param embeddingConfig - Embedding configuration (model, dimensions, context window)
+ * @param input - Search API contracts parameters with filters
+ * @returns Formatted API contract results grouped by service with implementation links
+ * @throws {Error} If query validation fails or embedding generation fails
  */
 export const searchAPIContractsTool = async (
   db: Pool,
@@ -111,6 +117,7 @@ export const searchAPIContractsTool = async (
   }
 
   // Transform endpoints to match output schema
+  // Note: WebSocket API type is normalized to 'rest' for compatibility with output schema
   const transformedEndpoints = endpoints.map((endpoint) => ({
     service_id: endpoint.service_id,
     service_name: endpoint.service_name,

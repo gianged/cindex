@@ -27,14 +27,14 @@ interface SymbolResolutionRow {
 /**
  * Extract symbols from chunk metadata
  *
- * Looks for symbols in chunk metadata:
+ * Looks for symbols in chunk metadata (populated during indexing):
  * - dependencies: imported symbols (e.g., ['UserService', 'AuthController'])
  * - imported_symbols: explicitly imported names
  * - function_names: functions defined in chunk
  * - class_names: classes defined in chunk
  *
  * @param chunks - Relevant chunks from Stage 2
- * @returns Set of unique symbol names to resolve
+ * @returns Set of unique symbol names to resolve (de-duplicated)
  */
 const extractSymbolsFromChunks = (chunks: RelevantChunk[]): Set<string> => {
   const symbols = new Set<string>();
@@ -84,12 +84,13 @@ const extractSymbolsFromChunks = (chunks: RelevantChunk[]): Set<string> => {
  * Resolve symbols to their definitions
  *
  * Queries code_symbols table for symbol definitions.
- * Filters by scope='exported' to find public APIs.
+ * Filters by scope='exported' to find public APIs (avoids internal implementation details).
  * Returns definitions with file paths and line numbers for context.
  *
  * @param chunks - Relevant chunks from Stage 2
  * @param db - Database client
- * @returns Array of resolved symbol definitions
+ * @returns Array of resolved symbol definitions (may include multiple definitions per symbol name)
+ * @throws Error if database query fails
  */
 export const resolveSymbols = async (chunks: RelevantChunk[], db: DatabaseClient): Promise<ResolvedSymbol[]> => {
   const startTime = Date.now();
@@ -108,7 +109,7 @@ export const resolveSymbols = async (chunks: RelevantChunk[], db: DatabaseClient
   });
 
   // Step 2: Query code_symbols table
-  // Filter by scope='exported' to get public APIs
+  // Filter by scope='exported' to get public APIs (avoids polluting context with internal symbols)
   const symbolNamesArray = Array.from(symbolNames);
 
   const query = `

@@ -25,7 +25,7 @@ import { type QueryEmbedding, type QueryType } from '@/types/retrieval';
  * - Question patterns (?, what, when, how, why, where)
  *
  * @param query - The query text to classify
- * @returns The detected query type
+ * @returns The detected query type ('code_snippet' or 'natural_language')
  */
 const detectQueryType = (query: string): QueryType => {
   const lowerQuery = query.toLowerCase();
@@ -73,20 +73,22 @@ const detectQueryType = (query: string): QueryType => {
   // Count natural language indicators
   const naturalLanguageCount = naturalLanguagePatterns.filter((pattern) => lowerQuery.includes(pattern)).length;
 
-  // Calculate special character density
+  // Calculate special character density (code has higher density of {}, (), [], etc.)
   const specialChars = query.match(/[{}()[\]=<>]/g) ?? [];
   const specialCharDensity = specialChars.length / query.length;
 
-  // Decision logic
+  // Decision logic: prioritize code snippet detection
+  // 2+ code keywords OR 1+ code symbols OR >10% special char density = code
   if (codeKeywordCount >= 2 || codeSymbolCount >= 1 || specialCharDensity > 0.1) {
     return 'code_snippet';
   }
 
+  // 1+ natural language patterns OR question mark = natural language
   if (naturalLanguageCount >= 1 || query.includes('?')) {
     return 'natural_language';
   }
 
-  // Default: natural language
+  // Default: natural language (safer assumption for ambiguous queries)
   return 'natural_language';
 };
 
@@ -122,12 +124,13 @@ const preprocessQuery = (query: string, queryType: QueryType): string => {
  * Generate query embedding with caching
  *
  * Converts user query into a 1024-dimensional vector for semantic search.
- * Caches embeddings for 1 hour to avoid redundant API calls.
+ * Caches embeddings for 30 minutes to avoid redundant API calls (saves ~80% of Ollama requests).
  *
  * @param query - User query text
  * @param config - cindex configuration
  * @param ollamaClient - Ollama API client
- * @returns Query embedding result
+ * @returns Query embedding result with query type, embedding vector, and generation time
+ * @throws Error if embedding generation fails (Ollama connection issues, model not found)
  */
 export const processQuery = async (
   query: string,

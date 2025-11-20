@@ -27,12 +27,18 @@ export class DatabaseClient {
   private isConnected = false;
   private readonly configuredDatabase: string;
 
+  /**
+   * Create a new database client instance
+   * @param config - Database configuration including connection details
+   */
   constructor(private config: DatabaseConfig) {
     this.configuredDatabase = config.database;
   }
 
   /**
-   * Initialize database connection pool
+   * Initialize database connection pool with security verification
+   * @throws {DatabaseNotFoundError} If database does not exist
+   * @throws {DatabaseConnectionError} If connection fails or database verification fails
    */
   async connect(): Promise<void> {
     logger.debug('Connecting to PostgreSQL', {
@@ -124,13 +130,13 @@ export class DatabaseClient {
   private validateQuerySecurity(sql: string): void {
     const normalizedSql = sql.toLowerCase().trim();
 
-    // Block dangerous database-level operations
+    // Block dangerous database-level operations that could affect other databases or connections
     const dangerousPatterns = [
-      /\bdrop\s+database\b/,
-      /\bcreate\s+database\b/,
-      /\balter\s+database\b/,
-      /\bpg_terminate_backend\b/,
-      /\bpg_cancel_backend\b/,
+      /\bdrop\s+database\b/, // Prevents accidental database deletion
+      /\bcreate\s+database\b/, // Prevents database creation
+      /\balter\s+database\b/, // Prevents database modification
+      /\bpg_terminate_backend\b/, // Prevents killing other connections
+      /\bpg_cancel_backend\b/, // Prevents canceling other queries
     ];
 
     for (const pattern of dangerousPatterns) {
@@ -139,20 +145,20 @@ export class DatabaseClient {
       }
     }
 
-    // Ensure queries only touch allowed schema
+    // Validate schema references to prevent cross-schema access
     if (normalizedSql.includes('from') || normalizedSql.includes('into') || normalizedSql.includes('update')) {
-      // Check for explicit schema references
+      // Extract schema.table patterns from query
       const schemaPattern = /\b(\w+)\.\w+/g;
       const matches = [...normalizedSql.matchAll(schemaPattern)];
 
       for (const match of matches) {
         const schema = match[1];
-        // Allow public schema and information_schema (for metadata queries)
+        // Allow public schema and system schemas needed for metadata queries
         if (
           schema !== ALLOWED_SCHEMA &&
           schema !== 'information_schema' &&
-          schema !== 'pg_type' &&
-          schema !== 'pg_extension'
+          schema !== 'pg_type' && // PostgreSQL type system
+          schema !== 'pg_extension' // Extension metadata
         ) {
           logger.warn('Query references non-standard schema', {
             schema,
@@ -165,6 +171,9 @@ export class DatabaseClient {
 
   /**
    * Health check - verify database and pgvector extension
+   * @param expectedVectorDimensions - Expected vector dimensions for validation
+   * @throws {DatabaseNotConnectedError} If not connected to database
+   * @throws {VectorExtensionError} If pgvector extension is not installed
    */
   async healthCheck(expectedVectorDimensions: number): Promise<void> {
     if (!this.isConnected || !this.pool) {
@@ -187,6 +196,7 @@ export class DatabaseClient {
 
   /**
    * Check if pgvector extension is installed
+   * @throws {VectorExtensionError} If pgvector extension is not found
    */
   private async checkPgvectorExtension(): Promise<void> {
     try {
@@ -211,6 +221,8 @@ export class DatabaseClient {
 
   /**
    * Check vector dimensions in database tables
+   * Verifies that vector columns exist in code_chunks, code_files, and code_symbols tables
+   * @param _expected - Expected vector dimensions (reserved for future dimension validation)
    */
   private async checkVectorDimensions(_expected: number): Promise<void> {
     try {
@@ -259,6 +271,11 @@ export class DatabaseClient {
 
   /**
    * Execute a query with error handling and security validation
+   * @param sql - SQL query string (parameterized)
+   * @param params - Query parameters (use parameterized queries for security)
+   * @returns Query result with typed rows
+   * @throws {DatabaseNotConnectedError} If not connected to database
+   * @throws {DatabaseQueryError} If query execution fails
    */
   async query<T extends pg.QueryResultRow = pg.QueryResultRow>(
     sql: string,
@@ -279,7 +296,11 @@ export class DatabaseClient {
   }
 
   /**
-   * Execute a query within a transaction
+   * Execute a query within a transaction with automatic rollback on error
+   * @param callback - Async function that receives a database client for transactional operations
+   * @returns Result from the callback function
+   * @throws {DatabaseNotConnectedError} If not connected to database
+   * @throws Any error thrown by the callback (transaction will be rolled back)
    */
   async transaction<T>(callback: (client: pg.PoolClient) => Promise<T>): Promise<T> {
     if (!this.pool) {
@@ -289,20 +310,24 @@ export class DatabaseClient {
     const client = await this.pool.connect();
 
     try {
+      // Start transaction
       await client.query('BEGIN');
       const result = await callback(client);
+      // Commit if callback succeeds
       await client.query('COMMIT');
       return result;
     } catch (error) {
+      // Rollback on any error to maintain data consistency
       await client.query('ROLLBACK');
       throw error;
     } finally {
+      // Always release client back to pool
       client.release();
     }
   }
 
   /**
-   * Close database connection pool
+   * Close database connection pool and release all connections
    */
   async close(): Promise<void> {
     if (this.pool) {
@@ -315,7 +340,8 @@ export class DatabaseClient {
   }
 
   /**
-   * Check if connected
+   * Check if currently connected to database
+   * @returns True if connected, false otherwise
    */
   get connected(): boolean {
     return this.isConnected;
@@ -335,7 +361,8 @@ export class DatabaseClient {
   }
 
   /**
-   * Get pool statistics
+   * Get pool statistics for monitoring connection usage
+   * @returns Connection pool statistics or null if not connected
    */
   getPoolStats(): {
     total: number;
@@ -355,7 +382,9 @@ export class DatabaseClient {
 }
 
 /**
- * Create database client
+ * Create database client instance
+ * @param config - Database configuration including host, port, credentials, and pool settings
+ * @returns Initialized DatabaseClient (call connect() to establish connection)
  */
 export const createDatabaseClient = (config: DatabaseConfig): DatabaseClient => {
   return new DatabaseClient(config);

@@ -39,9 +39,14 @@ export interface FindCrossWorkspaceUsagesOutput {
 /**
  * Find cross-workspace usages MCP tool implementation
  *
+ * Finds all cross-workspace usages of a workspace package in a monorepo. Tracks how
+ * workspaces import and use each other's code with optional symbol-level filtering
+ * and indirect usage traversal. Results are grouped by source workspace.
+ *
  * @param db - Database connection pool
- * @param input - Find cross-workspace usages parameters
- * @returns Formatted usage results
+ * @param input - Find cross-workspace usages parameters with workspace/package ID and filters
+ * @returns Formatted usage results grouped by source workspace with file locations
+ * @throws {Error} If validation fails or required parameters missing
  */
 export const findCrossWorkspaceUsagesTool = async (
   db: Pool,
@@ -99,7 +104,7 @@ export const findCrossWorkspaceUsagesTool = async (
   }
 
   // Transform database results to match expected output format
-  // Flatten file-level imports into individual usage records
+  // Flatten file-level imports into individual usage records for better display
   const usages = dbUsages.flatMap((workspaceUsage: CrossWorkspaceUsageDetail) =>
     workspaceUsage.file_imports.map((fileImport) => ({
       source_workspace_id: workspaceUsage.workspace_id,
@@ -107,7 +112,7 @@ export const findCrossWorkspaceUsagesTool = async (
       symbol_name: symbolName ?? fileImport.symbols.join(', '), // Use symbol filter or list all imported symbols
       file_path: fileImport.file_path,
       line_number: fileImport.line_number,
-      depth: 1, // Currently only direct imports supported (transitive tracking in future)
+      depth: 1, // Currently only direct imports supported (transitive tracking in TODO)
     }))
   );
 

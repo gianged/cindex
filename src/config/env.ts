@@ -8,14 +8,20 @@ import { logger } from '@utils/logger';
 import { DEFAULT_CONFIG, ENV_VARS, type CindexConfig } from '@/types/config';
 
 /**
- * Get environment variable with default
+ * Get environment variable with optional default fallback
+ * @param key - Environment variable name
+ * @param defaultValue - Default value if environment variable is not set
+ * @returns Environment variable value or default, undefined if neither exists
  */
 const getEnv = (key: string, defaultValue?: string): string | undefined => {
   return process.env[key] ?? defaultValue;
 };
 
 /**
- * Get required environment variable
+ * Get required environment variable, throws if not set
+ * @param key - Environment variable name
+ * @returns Environment variable value
+ * @throws {ConfigurationError} If environment variable is not set
  */
 const getEnvRequired = (key: string): string => {
   const value = process.env[key];
@@ -26,7 +32,13 @@ const getEnvRequired = (key: string): string => {
 };
 
 /**
- * Parse integer from environment variable
+ * Parse integer from environment variable with validation
+ * @param key - Environment variable name
+ * @param defaultValue - Default value if environment variable is not set
+ * @param min - Minimum allowed value (inclusive)
+ * @param max - Maximum allowed value (inclusive)
+ * @returns Parsed integer value
+ * @throws {ConfigurationError} If value is not a valid integer or outside allowed range
  */
 const parseEnvInt = (key: string, defaultValue: number, min?: number, max?: number): number => {
   const value = getEnv(key);
@@ -39,10 +51,12 @@ const parseEnvInt = (key: string, defaultValue: number, min?: number, max?: numb
     throw ConfigurationError.invalidValue(key, value, 'valid integer');
   }
 
+  // Validate minimum bound
   if (min !== undefined && parsed < min) {
     throw ConfigurationError.invalidValue(key, String(parsed), `>= ${String(min)}`);
   }
 
+  // Validate maximum bound
   if (max !== undefined && parsed > max) {
     throw ConfigurationError.invalidValue(key, String(parsed), `<= ${String(max)}`);
   }
@@ -51,7 +65,13 @@ const parseEnvInt = (key: string, defaultValue: number, min?: number, max?: numb
 };
 
 /**
- * Parse float from environment variable
+ * Parse float from environment variable with validation
+ * @param key - Environment variable name
+ * @param defaultValue - Default value if environment variable is not set
+ * @param min - Minimum allowed value (inclusive)
+ * @param max - Maximum allowed value (inclusive)
+ * @returns Parsed float value
+ * @throws {ConfigurationError} If value is not a valid number or outside allowed range
  */
 const parseEnvFloat = (key: string, defaultValue: number, min?: number, max?: number): number => {
   const value = getEnv(key);
@@ -64,10 +84,12 @@ const parseEnvFloat = (key: string, defaultValue: number, min?: number, max?: nu
     throw ConfigurationError.invalidValue(key, value, 'valid number');
   }
 
+  // Validate minimum bound
   if (min !== undefined && parsed < min) {
     throw ConfigurationError.invalidValue(key, String(parsed), `>= ${String(min)}`);
   }
 
+  // Validate maximum bound
   if (max !== undefined && parsed > max) {
     throw ConfigurationError.invalidValue(key, String(parsed), `<= ${String(max)}`);
   }
@@ -76,7 +98,12 @@ const parseEnvFloat = (key: string, defaultValue: number, min?: number, max?: nu
 };
 
 /**
- * Parse boolean from environment variable
+ * Parse boolean from environment variable with flexible value support
+ * Accepts: true/false, 1/0, yes/no (case-insensitive)
+ * @param key - Environment variable name
+ * @param defaultValue - Default value if environment variable is not set
+ * @returns Parsed boolean value
+ * @throws {ConfigurationError} If value is not a recognized boolean representation
  */
 const parseEnvBool = (key: string, defaultValue: boolean): boolean => {
   const value = getEnv(key);
@@ -85,9 +112,11 @@ const parseEnvBool = (key: string, defaultValue: boolean): boolean => {
   }
 
   const lower = value.toLowerCase();
+  // Accept truthy values
   if (lower === 'true' || lower === '1' || lower === 'yes') {
     return true;
   }
+  // Accept falsy values
   if (lower === 'false' || lower === '0' || lower === 'no') {
     return false;
   }
@@ -97,12 +126,16 @@ const parseEnvBool = (key: string, defaultValue: boolean): boolean => {
 
 /**
  * Load and validate configuration from environment variables
+ * Reads all configuration settings from environment variables with fallback to defaults
+ * @returns Complete validated configuration object
+ * @throws {ConfigurationError} If required variables are missing or invalid
  */
 export const loadConfig = (): CindexConfig => {
   // Load embedding configuration
   const embeddingModel =
     getEnv(ENV_VARS.EMBEDDING_MODEL, DEFAULT_CONFIG.embedding.model) ?? DEFAULT_CONFIG.embedding.model;
   const embeddingDimensions = parseEnvInt(ENV_VARS.EMBEDDING_DIMENSIONS, DEFAULT_CONFIG.embedding.dimensions, 1, 4096);
+  // Context window range: 512-131072 tokens (bge-m3 supports up to 8K)
   const embeddingContextWindow = parseEnvInt(
     ENV_VARS.EMBEDDING_CONTEXT_WINDOW,
     DEFAULT_CONFIG.embedding.context_window ?? 4096,
@@ -112,6 +145,7 @@ export const loadConfig = (): CindexConfig => {
 
   // Load summary configuration
   const summaryModel = getEnv(ENV_VARS.SUMMARY_MODEL, DEFAULT_CONFIG.summary.model) ?? DEFAULT_CONFIG.summary.model;
+  // Context window range: 512-131072 tokens (qwen2.5-coder:7b supports up to 32K)
   const summaryContextWindow = parseEnvInt(
     ENV_VARS.SUMMARY_CONTEXT_WINDOW,
     DEFAULT_CONFIG.summary.context_window ?? 4096,
@@ -121,13 +155,15 @@ export const loadConfig = (): CindexConfig => {
 
   // Load Ollama configuration
   const ollamaHost = getEnv(ENV_VARS.OLLAMA_HOST, DEFAULT_CONFIG.ollama.host) ?? DEFAULT_CONFIG.ollama.host;
+  // Timeout range: 1-300 seconds
   const ollamaTimeout = parseEnvInt(ENV_VARS.OLLAMA_TIMEOUT, DEFAULT_CONFIG.ollama.timeout, 1000, 300000);
 
-  // Load database configuration (password is required)
+  // Load database configuration (password is required for security)
   const postgresHost = getEnv(ENV_VARS.POSTGRES_HOST, DEFAULT_CONFIG.database.host) ?? DEFAULT_CONFIG.database.host;
   const postgresPort = parseEnvInt(ENV_VARS.POSTGRES_PORT, DEFAULT_CONFIG.database.port, 1, 65535);
   const postgresDb = getEnv(ENV_VARS.POSTGRES_DB, DEFAULT_CONFIG.database.database) ?? DEFAULT_CONFIG.database.database;
   const postgresUser = getEnv(ENV_VARS.POSTGRES_USER, DEFAULT_CONFIG.database.user) ?? DEFAULT_CONFIG.database.user;
+  // POSTGRES_PASSWORD is the only required environment variable
   const postgresPassword = getEnvRequired(ENV_VARS.POSTGRES_PASSWORD);
   const maxConnections = parseEnvInt(
     ENV_VARS.POSTGRES_MAX_CONNECTIONS,
@@ -137,6 +173,7 @@ export const loadConfig = (): CindexConfig => {
   );
 
   // Load performance configuration
+  // HNSW parameters: higher values = more accurate but slower
   const hnswEfSearch = parseEnvInt(ENV_VARS.HNSW_EF_SEARCH, DEFAULT_CONFIG.performance.hnsw_ef_search, 10, 1000);
   const hnswEfConstruction = parseEnvInt(
     ENV_VARS.HNSW_EF_CONSTRUCTION,
@@ -144,6 +181,7 @@ export const loadConfig = (): CindexConfig => {
     10,
     1000
   );
+  // Similarity thresholds: 0.0 (no filtering) to 1.0 (exact match)
   const similarityThreshold = parseEnvFloat(
     ENV_VARS.SIMILARITY_THRESHOLD,
     DEFAULT_CONFIG.performance.similarity_threshold,
@@ -151,14 +189,18 @@ export const loadConfig = (): CindexConfig => {
     1.0
   );
   const dedupThreshold = parseEnvFloat(ENV_VARS.DEDUP_THRESHOLD, DEFAULT_CONFIG.performance.dedup_threshold, 0.0, 1.0);
+  // Dependency traversal depth limits to prevent runaway expansion
   const importDepth = parseEnvInt(ENV_VARS.IMPORT_DEPTH, DEFAULT_CONFIG.performance.import_depth, 1, 10);
   const workspaceDepth = parseEnvInt(ENV_VARS.WORKSPACE_DEPTH, DEFAULT_CONFIG.performance.workspace_depth, 1, 10);
   const serviceDepth = parseEnvInt(ENV_VARS.SERVICE_DEPTH, DEFAULT_CONFIG.performance.service_depth, 1, 10);
 
   // Load indexing configuration
+  // Max file size in kilobytes (100KB - 100MB range)
   const maxFileSize = parseEnvInt(ENV_VARS.MAX_FILE_SIZE, DEFAULT_CONFIG.indexing.max_file_size, 100, 100000);
   const includeMarkdown = parseEnvBool(ENV_VARS.INCLUDE_MARKDOWN, DEFAULT_CONFIG.indexing.include_markdown);
+  // Secret file protection enabled by default for security
   const protectSecrets = parseEnvBool(ENV_VARS.PROTECT_SECRETS, DEFAULT_CONFIG.indexing.protect_secrets);
+  // Parse comma-separated secret patterns (e.g., "*.key,credentials.json")
   const secretPatterns = getEnv(ENV_VARS.SECRET_PATTERNS)?.split(',').map((p) => p.trim()).filter(Boolean) ?? DEFAULT_CONFIG.indexing.secret_patterns;
 
   // Load feature flags
@@ -176,7 +218,7 @@ export const loadConfig = (): CindexConfig => {
     DEFAULT_CONFIG.features.enable_api_endpoint_detection
   );
 
-  // Build final configuration
+  // Build final configuration object from all parsed values
   const config: CindexConfig = {
     embedding: {
       model: embeddingModel,
@@ -247,10 +289,14 @@ export const loadConfig = (): CindexConfig => {
 };
 
 /**
- * Validate configuration (additional semantic validation beyond type checking)
+ * Validate configuration for semantic correctness beyond type checking
+ * Performs cross-field validation and checks for common misconfigurations
+ * @param config - Configuration object to validate
+ * @throws {ConfigurationError} If configuration contains semantic errors
  */
 export const validateConfig = (config: CindexConfig): void => {
-  // Validate embedding dimensions match common models
+  // Validate embedding dimensions match common model outputs
+  // Most embedding models use one of these standard dimensions
   const validDimensions = [384, 768, 1024, 1536, 3072];
   if (!validDimensions.includes(config.embedding.dimensions)) {
     throw new ConfigurationError(
@@ -260,7 +306,8 @@ export const validateConfig = (config: CindexConfig): void => {
     );
   }
 
-  // Validate similarity thresholds
+  // Validate similarity threshold relationship
+  // Dedup threshold should be higher than similarity threshold to avoid filtering valid results
   if (config.performance.similarity_threshold > config.performance.dedup_threshold) {
     throw new ConfigurationError(
       'SIMILARITY_THRESHOLD should be <= DEDUP_THRESHOLD',
@@ -272,9 +319,10 @@ export const validateConfig = (config: CindexConfig): void => {
     );
   }
 
-  // Validate HNSW parameters
+  // Validate HNSW parameter relationship
+  // EF_SEARCH should typically be >= EF_CONSTRUCTION for optimal accuracy
   if (config.performance.hnsw_ef_search < config.performance.hnsw_ef_construction) {
-    // This is just a warning, not an error
+    // This is a warning, not an error, as it may be intentional for speed optimization
     logger.warn(
       `HNSW_EF_SEARCH (${String(config.performance.hnsw_ef_search)}) < HNSW_EF_CONSTRUCTION (${String(config.performance.hnsw_ef_construction)}). This may reduce search accuracy.`
     );

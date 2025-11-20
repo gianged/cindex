@@ -162,14 +162,18 @@ const filterImportsByBoundaries = async (
 /**
  * Expand import chain recursively with boundary-aware filtering
  *
+ * Recursively traverses the import dependency tree starting from a file, applying
+ * workspace and service boundary constraints. Prevents circular imports using a
+ * visited set. Returns metadata for all files in the import chain.
+ *
  * @param db - Database connection pool
  * @param filePath - File path to expand
- * @param depth - Current depth in the import chain
- * @param maxDepth - Maximum depth to traverse
- * @param visited - Set of already visited files (prevents circular imports)
- * @param boundaryOptions - Boundary filtering options
- * @param sourceFile - Source file context for boundary comparison
- * @returns Map of file paths to their metadata (summary, exports, depth)
+ * @param depth - Current depth in the import chain (0 = root file)
+ * @param maxDepth - Maximum depth to traverse (typically 1-3)
+ * @param visited - Set of already visited files (prevents circular import loops)
+ * @param boundaryOptions - Boundary filtering options (workspace/service constraints)
+ * @param sourceFile - Source file context for boundary comparison (workspace_id, service_id)
+ * @returns Map of file paths to their metadata (summary, exports, depth level)
  */
 const expandImportChain = async (
   db: Pool,
@@ -241,6 +245,13 @@ const expandImportChain = async (
 
 /**
  * Format import chain as Markdown tree
+ *
+ * Formats the import dependency tree with indentation based on depth level.
+ * Groups imports by depth and shows exports for each file (up to 5 exports per file).
+ *
+ * @param imports - Map of file paths to their metadata
+ * @param maxDepth - Maximum depth to display
+ * @returns Formatted Markdown tree with indentation and exports
  */
 const formatImportTree = (
   imports: Map<string, { summary: string; exports: string[]; depth: number }>,
@@ -294,9 +305,16 @@ const formatImportTree = (
 /**
  * Get file context MCP tool implementation
  *
+ * Retrieves complete context for a specific file including callers (files that import
+ * this file), callees (files imported by this file), import dependency chains, and
+ * code chunks. Supports workspace and service boundary constraints for multi-project
+ * codebases. Import chains are recursively expanded up to the specified depth with
+ * circular import detection.
+ *
  * @param db - Database connection pool
- * @param input - Get file context parameters
- * @returns Formatted file context with callers, callees, and chunks
+ * @param input - Get file context parameters with boundary options
+ * @returns Formatted file context with metadata, dependencies, and code chunks
+ * @throws {Error} If file not found or validation fails
  */
 export const getFileContextTool = async (db: Pool, input: GetFileContextInput): Promise<GetFileContextOutput> => {
   logger.info('get_file_context tool invoked', { file_path: input.file_path });
@@ -338,7 +356,7 @@ export const getFileContextTool = async (db: Pool, input: GetFileContextInput): 
     throw new Error(`File not found: ${filePath}`);
   }
 
-  // Filter imports based on boundaries
+  // Filter callees (direct imports) based on workspace/service boundary constraints
   const filteredCallees = await filterImportsByBoundaries(
     context.callees,
     context.file,
@@ -353,13 +371,14 @@ export const getFileContextTool = async (db: Pool, input: GetFileContextInput): 
     db
   );
 
-  // Expand import chain with boundary filtering
+  // Expand import chain recursively with boundary filtering
+  // This builds the full dependency tree up to the specified depth
   const importChain = await expandImportChain(
     db,
     filePath,
     0,
     importDepth,
-    new Set<string>(),
+    new Set<string>(), // Track visited files to prevent circular imports
     {
       workspace,
       includeWorkspaceOnly,

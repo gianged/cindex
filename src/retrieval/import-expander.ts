@@ -40,6 +40,9 @@ interface FileImportRow {
  * - Absolute paths within project (/src/utils/foo)
  * - Workspace aliases (@workspace/*, tsconfig paths)
  *
+ * Note: This is a heuristic approach. Scoped npm packages like @types/* may be incorrectly
+ * classified as internal, but will fail normalization and be marked as external_dependency.
+ *
  * @param importPath - Import path from code
  * @returns true if internal import, false if external
  */
@@ -145,7 +148,7 @@ export const normalizeImportPath = async (
  * 5. /index.ts (directory with index)
  * 6. /index.js
  *
- * If none exist, returns the original resolved path.
+ * If none exist, returns the original resolved path (likely an external import or missing file).
  *
  * @param resolvedPath - Absolute path without extension
  * @returns Path with extension, or original if no match found

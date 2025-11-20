@@ -16,7 +16,7 @@ import {
 import { logger } from './logger';
 
 /**
- * Ollama API response types
+ * Response from Ollama /api/tags endpoint
  */
 interface OllamaListResponse {
   models: {
@@ -27,10 +27,16 @@ interface OllamaListResponse {
   }[];
 }
 
+/**
+ * Response from Ollama /api/embeddings endpoint
+ */
 interface OllamaEmbedResponse {
   embedding: number[];
 }
 
+/**
+ * Response from Ollama /api/generate endpoint
+ */
 interface OllamaGenerateResponse {
   model: string;
   created_at: string;
@@ -39,16 +45,30 @@ interface OllamaGenerateResponse {
 }
 
 /**
- * Ollama client class
+ * Ollama client for embeddings and LLM operations
+ *
+ * Provides methods for:
+ * - Health checks and model validation
+ * - Embedding generation with retry logic
+ * - LLM-based summary generation
+ * - Batch operations with concurrency control
  */
 export class OllamaClient {
+  /**
+   * Create Ollama client
+   *
+   * @param config - Ollama configuration (host, timeout, retry settings)
+   */
   constructor(private config: OllamaConfig) {}
 
   /**
    * Ping Ollama to check if it's running
+   *
+   * @returns True if Ollama is accessible, false otherwise
    */
   async ping(): Promise<boolean> {
     try {
+      // Use AbortController for timeout handling
       const controller = new AbortController();
       const timeout = setTimeout(() => {
         controller.abort();
@@ -67,6 +87,11 @@ export class OllamaClient {
 
   /**
    * Health check - verify Ollama is running and models are available
+   *
+   * @param embeddingModel - Name of embedding model to validate
+   * @param summaryModel - Name of summary model to validate
+   * @throws {OllamaConnectionError} If Ollama is not accessible
+   * @throws {ModelNotFoundError} If required models are not available
    */
   async healthCheck(embeddingModel: string, summaryModel: string): Promise<void> {
     logger.debug('Performing Ollama health check', {
@@ -94,7 +119,11 @@ export class OllamaClient {
   }
 
   /**
-   * List available models
+   * List available models on Ollama instance
+   *
+   * @returns Array of model names
+   * @throws {RequestTimeoutError} If request times out
+   * @throws {OllamaConnectionError} If connection fails
    */
   async listModels(): Promise<string[]> {
     try {
@@ -124,7 +153,10 @@ export class OllamaClient {
   }
 
   /**
-   * Check if a model is available
+   * Check if a model is available on Ollama instance
+   *
+   * @param modelName - Name of model to check
+   * @throws {ModelNotFoundError} If model is not found
    */
   async checkModelAvailable(modelName: string): Promise<void> {
     const models = await this.listModels();
@@ -136,7 +168,19 @@ export class OllamaClient {
   }
 
   /**
-   * Generate embedding for text
+   * Generate embedding vector for text
+   *
+   * Uses retry logic with exponential backoff for transient failures.
+   * Validates embedding dimensions match expected model output.
+   *
+   * @param modelName - Name of embedding model (e.g., "bge-m3:567m")
+   * @param text - Text to embed (will be truncated if too long)
+   * @param expectedDimensions - Expected vector dimensions (e.g., 1024)
+   * @param contextWindow - Optional context window size in tokens
+   * @returns Embedding vector as array of floats
+   * @throws {EmbeddingGenerationError} If embedding generation fails
+   * @throws {VectorDimensionError} If dimensions don't match expected
+   * @throws {RequestTimeoutError} If request times out
    */
   async generateEmbedding(
     modelName: string,
@@ -198,6 +242,15 @@ export class OllamaClient {
 
   /**
    * Generate text summary using LLM
+   *
+   * Uses retry logic with exponential backoff for transient failures.
+   *
+   * @param modelName - Name of LLM model (e.g., "qwen2.5-coder:7b")
+   * @param prompt - Prompt for summary generation
+   * @param contextWindow - Optional context window size in tokens
+   * @returns Generated summary text
+   * @throws {RequestTimeoutError} If request times out
+   * @throws {Error} If summary generation fails after retries
    */
   async generateSummary(modelName: string, prompt: string, contextWindow?: number): Promise<string> {
     const generateFn = async (): Promise<string> => {
@@ -246,6 +299,16 @@ export class OllamaClient {
 
   /**
    * Batch generate embeddings for multiple texts
+   *
+   * Processes texts in batches with concurrency control to avoid overwhelming Ollama.
+   * Failed embeddings are logged but don't stop the batch operation.
+   *
+   * @param modelName - Name of embedding model
+   * @param texts - Array of texts to embed
+   * @param expectedDimensions - Expected vector dimensions
+   * @param concurrency - Number of concurrent requests (default: 5)
+   * @param contextWindow - Optional context window size in tokens
+   * @returns Array of embedding vectors (undefined for failed embeddings)
    */
   async generateEmbeddingBatch(
     modelName: string,
@@ -294,7 +357,10 @@ export class OllamaClient {
 }
 
 /**
- * Create Ollama client
+ * Create Ollama client instance
+ *
+ * @param config - Ollama configuration
+ * @returns Initialized OllamaClient
  */
 export const createOllamaClient = (config: OllamaConfig): OllamaClient => {
   return new OllamaClient(config);

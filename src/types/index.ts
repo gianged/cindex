@@ -1,9 +1,15 @@
 /**
- * cindex type definitions
- * Comprehensive types for monorepo, microservice, and multi-repo support
+ * cindex type definitions - Central export point
+ *
+ * Comprehensive types for monorepo, microservice, and multi-repository support.
+ * This file re-exports all type definitions from specialized type modules.
+ *
+ * Note: Some types are duplicated across modules (e.g., RelevantFile, SearchContext).
+ * Only the most authoritative versions are re-exported to avoid ambiguity.
  */
 
-// Core database types (rename ServiceType to avoid conflict)
+// Core database types (PostgreSQL schema)
+// Note: ServiceType renamed to DatabaseServiceType to avoid conflict with service.ts
 export type {
   RepositoryContext,
   CodeChunk,
@@ -37,7 +43,7 @@ export type {
 // Workspace types (monorepo support)
 export type * from './workspace';
 
-// Service types (microservice support) - ServiceType from here is the canonical one
+// Service types (microservice support)
 export type * from './service';
 
 // MCP tool parameter types

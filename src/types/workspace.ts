@@ -1,5 +1,6 @@
 /**
- * Workspace detection and configuration types
+ * Workspace detection and configuration types for monorepo support
+ *
  * Supports: Turborepo, Nx, Lerna, pnpm workspaces, npm workspaces, Yarn workspaces
  */
 
@@ -7,15 +8,22 @@
  * Detected workspace configuration from repository root
  */
 export interface WorkspaceConfig {
+  /** Workspace tool/format type */
   type: WorkspaceConfigType;
+  /** Absolute path to repository root */
   root_path: string;
+  /** Configuration file name (e.g., pnpm-workspace.yaml, lerna.json) */
   config_file: string;
+  /** Workspace glob patterns and resolved paths */
   workspaces: WorkspacePattern[];
+  /** Additional workspace configuration metadata */
   metadata?: WorkspaceConfigMetadata;
 }
 
 /**
  * Workspace configuration types
+ *
+ * Supported monorepo tools and their config files
  */
 export type WorkspaceConfigType =
   | 'pnpm' // pnpm-workspace.yaml
@@ -28,148 +36,216 @@ export type WorkspaceConfigType =
   | 'none'; // Single package (monolithic)
 
 /**
- * Workspace pattern (from config file)
+ * Workspace pattern from config file with resolved paths
  */
 export interface WorkspacePattern {
-  pattern: string; // Glob pattern (e.g., 'packages/*', 'apps/*')
-  resolved_paths: string[]; // Actual filesystem paths matching pattern
+  /** Glob pattern from config (e.g., 'packages/*', 'apps/*') */
+  pattern: string;
+  /** Actual filesystem paths matching this pattern */
+  resolved_paths: string[];
 }
 
 /**
  * Workspace configuration metadata
  */
 export interface WorkspaceConfigMetadata {
-  version?: string; // Config format version
-  tool_version?: string; // Tool version (nx, turbo, etc.)
+  /** Config format version (if specified) */
+  version?: string;
+  /** Tool version (nx, turbo, etc.) */
+  tool_version?: string;
+  /** Additional custom metadata */
   [key: string]: unknown;
 }
 
 /**
- * Detected workspace/package information
+ * Detected workspace/package information in monorepo
  */
 export interface DetectedWorkspace {
-  workspace_id: string; // Generated unique ID
-  package_name: string; // From package.json name field
-  workspace_path: string; // Relative path from repo root
+  /** Generated unique identifier */
+  workspace_id: string;
+  /** Package name from package.json */
+  package_name: string;
+  /** Relative path from repository root */
+  workspace_path: string;
+  /** Parsed package.json contents */
   package_json: PackageJsonInfo;
-  tsconfig?: TsConfigInfo; // If TypeScript workspace
+  /** TypeScript configuration (if present) */
+  tsconfig?: TsConfigInfo;
+  /** Workspace dependencies (internal and external) */
   dependencies: WorkspaceDependencyInfo;
 }
 
 /**
- * package.json information
+ * Parsed package.json information
  */
 export interface PackageJsonInfo {
-  path: string; // Absolute path to package.json
+  /** Absolute path to package.json file */
+  path: string;
+  /** Package name */
   name: string;
+  /** Package version */
   version: string;
+  /** Whether package is private */
   private?: boolean;
+  /** Main entry point */
   main?: string;
+  /** TypeScript types entry point */
   types?: string;
+  /** Package exports map */
   exports?: Record<string, unknown>;
+  /** npm scripts */
   scripts?: Record<string, string>;
+  /** Runtime dependencies */
   dependencies?: Record<string, string>;
+  /** Development dependencies */
   devDependencies?: Record<string, string>;
+  /** Peer dependencies */
   peerDependencies?: Record<string, string>;
+  /** Workspace patterns (for root package.json) */
   workspaces?: string[] | { packages: string[] };
 }
 
 /**
- * tsconfig.json information (for TypeScript workspaces)
+ * Parsed tsconfig.json information for TypeScript workspaces
  */
 export interface TsConfigInfo {
+  /** Absolute path to tsconfig.json file */
   path: string;
+  /** Extended configuration file paths */
   extends?: string | string[];
+  /** TypeScript compiler options */
   compilerOptions?: {
+    /** Base directory for module resolution */
     baseUrl?: string;
+    /** Path aliases for imports (e.g., @workspace/*) */
     paths?: Record<string, string[]>;
+    /** Root directory for source files */
     rootDir?: string;
+    /** Output directory for compiled files */
     outDir?: string;
+    /** Additional compiler options */
     [key: string]: unknown;
   };
+  /** Include patterns for compilation */
   include?: string[];
+  /** Exclude patterns for compilation */
   exclude?: string[];
+  /** Project references for composite projects */
   references?: { path: string }[];
 }
 
 /**
- * Workspace dependency information
+ * Workspace dependency information (internal and external)
  */
 export interface WorkspaceDependencyInfo {
-  internal: InternalDependency[]; // Dependencies on other workspaces
-  external: ExternalDependency[]; // Dependencies on external packages
+  /** Dependencies on other workspaces in monorepo */
+  internal: InternalDependency[];
+  /** Dependencies on external npm packages */
+  external: ExternalDependency[];
 }
 
 /**
- * Internal workspace dependency (within monorepo)
+ * Internal workspace dependency within monorepo
  */
 export interface InternalDependency {
-  package_name: string; // e.g., '@workspace/shared'
-  workspace_id: string; // Resolved workspace ID
-  version: string; // Version specifier from package.json
+  /** Package name (e.g., '@workspace/shared') */
+  package_name: string;
+  /** Resolved workspace identifier */
+  workspace_id: string;
+  /** Version specifier from package.json */
+  version: string;
+  /** Dependency type classification */
   type: 'runtime' | 'dev' | 'peer';
 }
 
 /**
- * External package dependency (npm, etc.)
+ * External npm package dependency
  */
 export interface ExternalDependency {
+  /** Package name */
   package_name: string;
+  /** Version specifier */
   version: string;
+  /** Dependency type classification */
   type: 'runtime' | 'dev' | 'peer';
 }
 
 /**
- * Workspace resolution result (resolve @workspace/pkg → filesystem path)
+ * Workspace alias resolution result (e.g., @workspace/pkg → filesystem path)
  */
 export interface WorkspaceResolution {
-  alias: string; // Original alias (e.g., '@workspace/shared')
-  resolved_path: string; // Filesystem path
+  /** Original import alias */
+  alias: string;
+  /** Resolved filesystem path */
+  resolved_path: string;
+  /** Workspace identifier */
   workspace_id: string;
+  /** Package name */
   package_name: string;
+  /** Resolution strategy used */
   resolution_type: 'npm_workspace' | 'tsconfig_path' | 'custom';
 }
 
 /**
- * Workspace import statement analysis
+ * Workspace import statement analysis result
  */
 export interface WorkspaceImport {
-  import_statement: string; // Original import string
-  module_specifier: string; // The imported module
-  is_internal: boolean; // Whether it's an internal workspace import
-  resolution: WorkspaceResolution | null; // Resolved path (if internal)
-  symbols: string[]; // Imported symbols
+  /** Original import statement text */
+  import_statement: string;
+  /** Module specifier being imported */
+  module_specifier: string;
+  /** Whether this is an internal workspace import */
+  is_internal: boolean;
+  /** Resolved path (only for internal imports) */
+  resolution: WorkspaceResolution | null;
+  /** Imported symbols from module */
+  symbols: string[];
 }
 
 /**
- * Workspace boundary configuration (for import chain expansion)
+ * Workspace boundary configuration for import chain expansion
  */
 export interface WorkspaceBoundary {
-  respect_boundaries: boolean; // Don't cross workspace boundaries
-  max_depth_within_workspace: number; // Default: 2
-  max_depth_cross_workspace: number; // Default: 1
-  excluded_workspaces?: string[]; // Don't expand into these workspaces
+  /** Don't cross workspace boundaries during expansion */
+  respect_boundaries: boolean;
+  /** Maximum depth within same workspace */
+  max_depth_within_workspace: number;
+  /** Maximum depth when crossing workspace boundaries */
+  max_depth_cross_workspace: number;
+  /** Workspace IDs to exclude from expansion */
+  excluded_workspaces?: string[];
 }
 
 /**
- * Workspace indexing options
+ * Workspace detection and indexing options
  */
 export interface WorkspaceIndexingOptions {
-  detect_workspaces: boolean; // Enable workspace detection (default: true)
-  respect_workspace_boundaries: boolean; // Don't cross boundaries (default: false)
-  index_workspace_dependencies: boolean; // Index internal deps (default: true)
-  resolve_workspace_aliases: boolean; // Resolve @workspace/* (default: true)
-  parse_tsconfig_paths: boolean; // Parse TypeScript paths (default: true)
-  excluded_workspaces?: string[]; // Workspace IDs to exclude
-  included_workspaces?: string[]; // Only index these workspaces (if specified)
+  /** Enable workspace detection (default: true) */
+  detect_workspaces: boolean;
+  /** Don't cross workspace boundaries (default: false) */
+  respect_workspace_boundaries: boolean;
+  /** Index internal workspace dependencies (default: true) */
+  index_workspace_dependencies: boolean;
+  /** Resolve @workspace/* aliases (default: true) */
+  resolve_workspace_aliases: boolean;
+  /** Parse TypeScript path mappings (default: true) */
+  parse_tsconfig_paths: boolean;
+  /** Workspace IDs to exclude from indexing */
+  excluded_workspaces?: string[];
+  /** Only index these workspaces (if specified) */
+  included_workspaces?: string[];
 }
 
 /**
- * Workspace search filters (for MCP tools)
+ * Workspace search filters for MCP tools
  */
 export interface WorkspaceSearchFilter {
-  workspace_ids?: string[]; // Filter by workspace IDs
-  package_names?: string[]; // Filter by package names
-  exclude_workspaces?: string[]; // Exclude these workspaces
-  include_workspace_deps?: boolean; // Include dependencies in results
+  /** Filter by workspace identifiers */
+  workspace_ids?: string[];
+  /** Filter by package names */
+  package_names?: string[];
+  /** Exclude these workspaces from results */
+  exclude_workspaces?: string[];
+  /** Include workspace dependencies in results */
+  include_workspace_deps?: boolean;
 }

@@ -14,46 +14,46 @@ import { type APIEndpointMatch, type ResolvedSymbol } from '@/types/retrieval';
 export type { Workspace, Service };
 
 /**
- * File context result with all related data
+ * File context result with all related data including dependency relationships
  */
 export interface FileContext {
   file: CodeFile;
   chunks: CodeChunk[];
-  callers: string[]; // File paths that import this file
-  callees: string[]; // Files imported by this file
+  callers: string[]; // File paths that import this file (reverse dependency)
+  callees: string[]; // Files imported by this file (forward dependency)
 }
 
 /**
- * Workspace context result with dependencies
+ * Workspace context result with dependencies and code chunks
  */
 export interface WorkspaceContext {
   workspace: Workspace;
-  dependencies: string[]; // Package names this workspace depends on
-  dependents: string[]; // Package names that depend on this workspace
+  dependencies: string[]; // Package names this workspace depends on (forward)
+  dependents: string[]; // Package names that depend on this workspace (reverse)
   files: CodeFile[];
   chunks: CodeChunk[];
 }
 
 /**
- * Service context result with API contracts
+ * Service context result with API contracts and dependencies
  */
 export interface ServiceContext {
   service: Service;
-  dependencies: string[]; // Service IDs this service depends on
-  dependents: string[]; // Service IDs that depend on this service
+  dependencies: string[]; // Service IDs this service depends on (forward)
+  dependents: string[]; // Service IDs that depend on this service (reverse)
   api_endpoints: APIEndpointMatch[];
   files: CodeFile[];
   chunks: CodeChunk[];
 }
 
 /**
- * Get file context with chunks, callers, and callees
- *
+ * Get file context with chunks, callers, and callees for complete file understanding
  * @param db - Database connection pool
- * @param filePath - Absolute file path
- * @param includeCallers - Include files that import this file
- * @param includeCallees - Include files imported by this file
- * @returns File context with all related data
+ * @param filePath - Absolute file path to retrieve context for
+ * @param includeCallers - Include files that import this file (reverse dependencies)
+ * @param includeCallees - Include files imported by this file (forward dependencies)
+ * @returns File context with all related data, or null if file not found
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const getFileContext = async (
   db: Pool,
@@ -79,9 +79,10 @@ export const getFileContext = async (
 
     const chunks = chunksResult.rows;
 
-    // Get callers (files that import this file)
+    // Get callers (reverse dependencies - files that import this file)
     let callers: string[] = [];
     if (includeCallers) {
+      // Search for this file path in other files' imports arrays
       const callersResult = await db.query<{ file_path: string }>(
         `SELECT DISTINCT file_path
          FROM code_files
@@ -92,7 +93,7 @@ export const getFileContext = async (
       callers = callersResult.rows.map((row) => row.file_path);
     }
 
-    // Get callees (files imported by this file)
+    // Get callees (forward dependencies - files imported by this file)
     const callees = includeCallees ? getImportPaths(file.imports) : [];
 
     return {
@@ -108,12 +109,12 @@ export const getFileContext = async (
 };
 
 /**
- * Search symbols by name with optional filters
- *
+ * Search symbols by name with optional scope and project filters
  * @param db - Database connection pool
- * @param symbolName - Symbol name (supports partial match with %)
- * @param options - Search options
- * @returns Array of resolved symbols
+ * @param symbolName - Symbol name (supports partial ILIKE match with %)
+ * @param options - Search options including scope, workspace, service, and repo filters
+ * @returns Array of resolved symbols sorted by scope (exported first) and name
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const searchSymbols = async (
   db: Pool,
@@ -131,7 +132,7 @@ export const searchSymbols = async (
     const params: unknown[] = [`%${symbolName}%`];
     let paramIndex = 2;
 
-    // Scope filter
+    // Scope filter (exported symbols are public API, internal are private)
     if (options.scope === 'exported') {
       conditions.push(`scope = 'exported'`);
     } else if (options.scope === 'internal') {
@@ -186,12 +187,12 @@ export const searchSymbols = async (
 };
 
 /**
- * List all workspaces in a repository
- *
+ * List all workspaces in a repository for monorepo support
  * @param db - Database connection pool
- * @param repoId - Repository ID (optional, returns all if not specified)
- * @param options - Optional includes for dependencies and metadata
- * @returns Array of workspaces with metadata
+ * @param repoId - Repository ID (optional, returns all workspaces if not specified)
+ * @param _options - Optional includes for dependencies and metadata (not yet implemented)
+ * @returns Array of workspaces sorted by package name
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const listWorkspaces = async (
   db: Pool,
@@ -219,11 +220,11 @@ export const listWorkspaces = async (
 };
 
 /**
- * Get workspace dependencies
- *
+ * Get workspace dependencies (forward dependencies - packages this workspace depends on)
  * @param db - Database connection pool
- * @param workspaceId - Workspace ID
- * @returns Array of dependency package names
+ * @param workspaceId - Workspace ID to retrieve dependencies for
+ * @returns Array of dependency package names sorted alphabetically
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const getWorkspaceDependencies = async (db: Pool, workspaceId: string): Promise<string[]> => {
   try {
@@ -244,11 +245,11 @@ export const getWorkspaceDependencies = async (db: Pool, workspaceId: string): P
 };
 
 /**
- * Get workspace dependents (who depends on this workspace)
- *
+ * Get workspace dependents (reverse dependencies - workspaces that depend on this package)
  * @param db - Database connection pool
- * @param packageName - Package name of the workspace
+ * @param packageName - Package name of the workspace to find dependents for
  * @returns Array of workspace IDs that depend on this package
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const getWorkspaceDependents = async (db: Pool, packageName: string): Promise<string[]> => {
   try {
@@ -269,13 +270,18 @@ export const getWorkspaceDependents = async (db: Pool, packageName: string): Pro
 };
 
 /**
- * Get full workspace context
- *
+ * Get full workspace context including dependencies, dependents, files, and chunks
  * @param db - Database connection pool
- * @param workspaceId - Workspace ID
- * @param packageName - Package name (alternative to workspace ID)
- * @param repoId - Repository ID (required if using package name)
- * @returns Workspace context with dependencies and files
+ * @param options - Query options (must provide either workspaceId or packageName+repoId)
+ * @param options.workspaceId - Workspace ID (preferred identifier)
+ * @param options.packageName - Package name (alternative identifier)
+ * @param options.repoId - Repository ID (required if using package name)
+ * @param options.includeDependencies - Include dependency information (not yet implemented)
+ * @param options.includeDependents - Include dependent information (not yet implemented)
+ * @param options.dependencyDepth - Depth of dependency traversal (not yet implemented)
+ * @returns Workspace context with all related data, or null if not found
+ * @throws {DatabaseQueryError} If query execution fails
+ * @throws {Error} If neither workspaceId nor (packageName + repoId) provided
  */
 export const getWorkspaceContext = async (
   db: Pool,
@@ -289,7 +295,7 @@ export const getWorkspaceContext = async (
   }
 ): Promise<WorkspaceContext | null> => {
   try {
-    // Get workspace
+    // Lookup workspace by ID or by package name + repo ID
     let workspace: Workspace | undefined;
 
     if (options.workspaceId) {
@@ -298,6 +304,7 @@ export const getWorkspaceContext = async (
       ]);
       workspace = result.rows[0];
     } else if (options.packageName && options.repoId) {
+      // Alternative lookup using package name within a specific repository
       const result = await db.query<Workspace>(`SELECT * FROM workspaces WHERE package_name = $1 AND repo_id = $2`, [
         options.packageName,
         options.repoId,
@@ -312,10 +319,10 @@ export const getWorkspaceContext = async (
       return null;
     }
 
-    // Get dependencies and dependents
+    // Fetch all related data in parallel for performance
     const [dependencies, dependents, files, chunks] = await Promise.all([
-      getWorkspaceDependencies(db, workspace.workspace_id),
-      getWorkspaceDependents(db, workspace.package_name),
+      getWorkspaceDependencies(db, workspace.workspace_id), // Forward dependencies
+      getWorkspaceDependents(db, workspace.package_name), // Reverse dependencies
       db.query<CodeFile>(`SELECT * FROM code_files WHERE workspace_id = $1 ORDER BY file_path`, [
         workspace.workspace_id,
       ]),
@@ -338,12 +345,15 @@ export const getWorkspaceContext = async (
 };
 
 /**
- * List all services in repositories
- *
+ * List all services in repositories with optional filtering
  * @param db - Database connection pool
- * @param repoId - Repository ID (optional, returns all if not specified)
+ * @param repoId - Repository ID (optional, returns all services if not specified)
  * @param options - Optional filters and includes
- * @returns Array of services with metadata
+ * @param options.serviceType - Filter by service type (e.g., ['rest', 'graphql'])
+ * @param options.includeDependencies - Include dependency information (not yet implemented)
+ * @param options.includeApiEndpoints - Include API endpoint information (not yet implemented)
+ * @returns Array of services sorted by repository and service name
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const listServices = async (
   db: Pool,
@@ -385,11 +395,12 @@ export const listServices = async (
 };
 
 /**
- * Get service API endpoints
- *
+ * Get service API endpoints with implementation details
+ * Enriches endpoints with file path and line numbers from code chunks
  * @param db - Database connection pool
- * @param serviceId - Service ID
- * @returns Array of API endpoints
+ * @param serviceId - Service ID to retrieve endpoints for
+ * @returns Array of API endpoints with implementation locations
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const getServiceAPIEndpoints = async (db: Pool, serviceId: string): Promise<APIEndpointMatch[]> => {
   try {
@@ -414,9 +425,10 @@ export const getServiceAPIEndpoints = async (db: Pool, serviceId: string): Promi
 
     const result = await db.query<APIEndpointMatch>(sql, [serviceId]);
 
-    // Get implementation file and lines from chunk_id
+    // Enrich endpoints with implementation file and line numbers
     for (const endpoint of result.rows) {
       if (endpoint.implementation_chunk_id) {
+        // Fetch chunk details to get file location and line range
         const chunkResult = await db.query<{ file_path: string; start_line: number; end_line: number }>(
           `SELECT file_path, start_line, end_line FROM code_chunks WHERE chunk_id = $1`,
           [endpoint.implementation_chunk_id]
@@ -438,11 +450,11 @@ export const getServiceAPIEndpoints = async (db: Pool, serviceId: string): Promi
 };
 
 /**
- * Get service dependencies
- *
+ * Get service dependencies (forward dependencies - services this service calls)
  * @param db - Database connection pool
- * @param serviceId - Service ID
+ * @param serviceId - Service ID to retrieve dependencies for
  * @returns Array of service IDs this service depends on
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const getServiceDependencies = async (db: Pool, serviceId: string): Promise<string[]> => {
   try {
@@ -463,11 +475,11 @@ export const getServiceDependencies = async (db: Pool, serviceId: string): Promi
 };
 
 /**
- * Get service dependents (who depends on this service)
- *
+ * Get service dependents (reverse dependencies - services that call this service)
  * @param db - Database connection pool
- * @param serviceId - Service ID
+ * @param serviceId - Service ID to find dependents for
  * @returns Array of service IDs that depend on this service
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const getServiceDependents = async (db: Pool, serviceId: string): Promise<string[]> => {
   try {
@@ -488,13 +500,19 @@ export const getServiceDependents = async (db: Pool, serviceId: string): Promise
 };
 
 /**
- * Get full service context
- *
+ * Get full service context including API contracts, dependencies, and code
  * @param db - Database connection pool
- * @param serviceId - Service ID
- * @param serviceName - Service name (alternative to service ID)
- * @param repoId - Repository ID (required if using service name)
- * @returns Service context with API contracts and dependencies
+ * @param options - Query options (must provide either serviceId or serviceName+repoId)
+ * @param options.serviceId - Service ID (preferred identifier)
+ * @param options.serviceName - Service name (alternative identifier)
+ * @param options.repoId - Repository ID (required if using service name)
+ * @param options.includeDependencies - Include dependency information (not yet implemented)
+ * @param options.includeDependents - Include dependent information (not yet implemented)
+ * @param options.includeApiContracts - Include API contract information (not yet implemented)
+ * @param options.dependencyDepth - Depth of dependency traversal (not yet implemented)
+ * @returns Service context with all related data, or null if not found
+ * @throws {DatabaseQueryError} If query execution fails
+ * @throws {Error} If neither serviceId nor (serviceName + repoId) provided
  */
 export const getServiceContext = async (
   db: Pool,
@@ -509,13 +527,14 @@ export const getServiceContext = async (
   }
 ): Promise<ServiceContext | null> => {
   try {
-    // Get service
+    // Lookup service by ID or by service name + repo ID
     let service: Service | undefined;
 
     if (options.serviceId) {
       const result = await db.query<Service>(`SELECT * FROM services WHERE service_id = $1`, [options.serviceId]);
       service = result.rows[0];
     } else if (options.serviceName && options.repoId) {
+      // Alternative lookup using service name within a specific repository
       const result = await db.query<Service>(`SELECT * FROM services WHERE service_name = $1 AND repo_id = $2`, [
         options.serviceName,
         options.repoId,
@@ -530,11 +549,11 @@ export const getServiceContext = async (
       return null;
     }
 
-    // Get dependencies, dependents, API endpoints, files, and chunks
+    // Fetch all related data in parallel for performance
     const [dependencies, dependents, apiEndpoints, files, chunks] = await Promise.all([
-      getServiceDependencies(db, service.service_id),
-      getServiceDependents(db, service.service_id),
-      getServiceAPIEndpoints(db, service.service_id),
+      getServiceDependencies(db, service.service_id), // Forward dependencies
+      getServiceDependents(db, service.service_id), // Reverse dependencies
+      getServiceAPIEndpoints(db, service.service_id), // API contracts
       db.query<CodeFile>(`SELECT * FROM code_files WHERE service_id = $1 ORDER BY file_path`, [service.service_id]),
       db.query<CodeChunk>(`SELECT * FROM code_chunks WHERE service_id = $1 ORDER BY file_path, start_line`, [
         service.service_id,
@@ -556,12 +575,19 @@ export const getServiceContext = async (
 };
 
 /**
- * Search API contracts (endpoints) with semantic search
- *
+ * Search API contracts (endpoints) with semantic vector search
+ * Uses cosine similarity for relevance ranking
  * @param db - Database connection pool
- * @param queryEmbedding - Query embedding vector
- * @param options - Search options
- * @returns Array of API endpoints ranked by similarity
+ * @param queryEmbedding - Query embedding vector (1024 dimensions)
+ * @param options - Search options for filtering and configuration
+ * @param options.apiTypes - Filter by API type (rest, graphql, grpc)
+ * @param options.serviceFilter - Filter by service IDs
+ * @param options.repoFilter - Filter by repository IDs
+ * @param options.includeDeprecated - Include deprecated endpoints (default: false)
+ * @param options.maxResults - Maximum results to return (default: 20)
+ * @param options.similarityThreshold - Minimum similarity score (default: 0.75)
+ * @returns Array of API endpoints ranked by similarity with implementation details
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const searchAPIContracts = async (
   db: Pool,
@@ -603,12 +629,14 @@ export const searchAPIContracts = async (
       conditions.push(`(deprecated IS NULL OR deprecated = false)`);
     }
 
-    // Similarity threshold
+    // Apply similarity threshold for relevance filtering
     const similarityThreshold = options.similarityThreshold ?? 0.75;
 
     const whereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
     const limit = options.maxResults ?? 20;
 
+    // Use cosine distance operator (<=> ) from pgvector for similarity
+    // Formula: 1 - cosine_distance = cosine_similarity (0 to 1 scale)
     const sql = `
       SELECT
         endpoint_path,
@@ -664,32 +692,39 @@ export const searchAPIContracts = async (
  * @returns Array of workspace IDs that use this package
  */
 /**
- * File-level import information for cross-workspace tracking
+ * File-level import information for cross-workspace tracking with line numbers
  */
 export interface CrossWorkspaceFileImport {
   file_path: string;
   line_number: number;
-  symbols: string[];
-  import_type: string;
+  symbols: string[]; // Imported symbols (e.g., ['Button', 'Input'])
+  import_type: string; // Import style (e.g., 'named', 'default', 'namespace')
 }
 
 /**
- * Cross-workspace usage with file-level detail
+ * Cross-workspace usage detail with file-level and line-level granularity
  */
 export interface CrossWorkspaceUsageDetail {
   workspace_id: string;
   package_name: string;
-  file_imports: CrossWorkspaceFileImport[];
-  file_count: number;
-  total_imports: number;
+  file_imports: CrossWorkspaceFileImport[]; // All files that import the target package
+  file_count: number; // Total number of files
+  total_imports: number; // Total number of import statements
 }
 
 /**
- * Find cross-workspace usages with file-level and line-level detail
- *
+ * Find cross-workspace usages with file-level and line-level detail for dependency tracking
+ * Uses JSONB operators to search structured import data
  * @param db - Database connection pool
  * @param options - Query options
- * @returns Array of workspace usages with file/line details
+ * @param options.packageName - Target package name to find usages of
+ * @param options.workspaceId - Workspace ID to exclude from results (optional)
+ * @param options.symbolName - Filter by specific symbol name (not yet implemented)
+ * @param options.includeIndirect - Include indirect dependencies (not yet implemented)
+ * @param options.maxDepth - Maximum depth for transitive dependencies (reserved for future)
+ * @returns Array of workspace usages with file/line details, sorted by usage count
+ * @throws {DatabaseQueryError} If query execution fails
+ * @throws {Error} If neither packageName nor workspaceId provided
  */
 export const findCrossWorkspaceUsages = async (
   db: Pool,
@@ -713,13 +748,14 @@ export const findCrossWorkspaceUsages = async (
       throw new Error('Either packageName or workspaceId is required');
     }
 
-    // If we have packageName, search for workspaces that import it
+    // Search for workspaces that import the specified package
     if (packageName) {
       const excludeClause = workspaceId ? `AND workspace_id != $2` : '';
       const params = workspaceId ? [packageName, workspaceId] : [packageName];
 
       // Query to find all files that import the target package
-      // Uses JSONB operators to search within the structured imports
+      // Uses JSONB containment operator (@>) to search within structured imports array
+      // This allows querying nested JSONB structures efficiently
       const sql = `
         SELECT
           workspace_id,
@@ -740,12 +776,13 @@ export const findCrossWorkspaceUsages = async (
         imports: { imports: { path: string; line: number; symbols: string[]; type: string }[] };
       }>(sql, params);
 
-      // Group results by workspace and extract file-level import details
+      // Group results by workspace to aggregate file-level imports
       const workspaceMap = new Map<string, CrossWorkspaceUsageDetail>();
 
       for (const row of result.rows) {
         const key = `${row.workspace_id}:${row.package_name}`;
 
+        // Initialize workspace entry if not exists
         if (!workspaceMap.has(key)) {
           workspaceMap.set(key, {
             workspace_id: row.workspace_id,
@@ -757,11 +794,12 @@ export const findCrossWorkspaceUsages = async (
         }
 
         const usage = workspaceMap.get(key);
-        if (!usage) continue; // Should never happen, but safety check
+        if (!usage) continue; // Should never happen, but TypeScript safety check
 
-        // Extract imports matching the target package
+        // Extract imports matching the target package from JSONB structure
         const matchingImports = row.imports.imports.filter((imp) => imp.path === packageName);
 
+        // Add each import statement with file location and imported symbols
         for (const imp of matchingImports) {
           usage.file_imports.push({
             file_path: row.file_path,
@@ -775,6 +813,7 @@ export const findCrossWorkspaceUsages = async (
         usage.file_count++;
       }
 
+      // Sort by usage frequency (most used packages first)
       return Array.from(workspaceMap.values()).sort((a, b) => b.total_imports - a.total_imports);
     }
 
@@ -791,13 +830,14 @@ export const findCrossWorkspaceUsages = async (
 };
 
 /**
- * Find cross-service API calls
- *
+ * Find cross-service API calls for microservice dependency analysis
  * @param db - Database connection pool
- * @param sourceServiceId - Source service ID (optional)
- * @param targetServiceId - Target service ID (optional)
- * @param endpointPattern - Endpoint regex pattern (optional)
- * @returns Array of cross-service API calls
+ * @param options - Query options for filtering
+ * @param options.sourceServiceId - Source service ID (caller)
+ * @param options.targetServiceId - Target service ID (callee)
+ * @param options.endpointPattern - Endpoint regex pattern for filtering
+ * @returns Array of cross-service API calls with call counts
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const findCrossServiceCalls = async (
   db: Pool,
@@ -863,29 +903,33 @@ export const findCrossServiceCalls = async (
 };
 
 /**
- * Repository information with optional counts
+ * Repository information with optional counts and metadata
  */
 export interface RepositoryInfo {
   repo_id: string;
   repo_name: string | null;
-  repo_type: string;
+  repo_type: string; // 'monolithic', 'microservice', 'monorepo', 'library', 'reference', 'documentation'
   repo_path?: string;
   last_indexed: Date;
-  indexed_at: string; // ISO string representation of last_indexed
+  indexed_at: string; // ISO 8601 string representation of last_indexed
   file_count: number;
   metadata?: Record<string, unknown>;
-  workspace_count?: number;
-  service_count?: number;
-  version?: string;
-  upstream_url?: string;
+  workspace_count?: number; // Number of workspaces (monorepos only)
+  service_count?: number; // Number of services (microservices only)
+  version?: string; // Version tag for reference repositories
+  upstream_url?: string; // Git remote URL
 }
 
 /**
- * List all indexed repositories
- *
+ * List all indexed repositories with optional metadata and counts
+ * Uses LEFT JOINs to include repositories even if they have no files/workspaces/services
  * @param db - Database connection pool
  * @param options - Optional parameters for additional data
- * @returns Array of repository information
+ * @param options.includeMetadata - Include repository metadata JSONB field
+ * @param options.includeWorkspaceCount - Include count of workspaces (monorepos)
+ * @param options.includeServiceCount - Include count of services (microservices)
+ * @returns Array of repository information sorted by last indexed date (newest first)
+ * @throws {DatabaseQueryError} If query execution fails
  */
 export const listIndexedRepositories = async (
   db: Pool,
@@ -898,7 +942,7 @@ export const listIndexedRepositories = async (
   try {
     const { includeMetadata = false, includeWorkspaceCount = false, includeServiceCount = false } = options;
 
-    // Build SELECT clause
+    // Build dynamic SELECT clause based on options
     const selectFields = [
       'r.repo_id',
       'r.repo_name',
@@ -922,7 +966,7 @@ export const listIndexedRepositories = async (
       selectFields.push('COUNT(DISTINCT s.id) as service_count');
     }
 
-    // Build JOIN clause
+    // Build dynamic JOIN clause based on options (LEFT JOIN to include repos with 0 counts)
     const joins = ['LEFT JOIN code_files f ON r.repo_id = f.repo_id'];
 
     if (includeWorkspaceCount) {
@@ -969,16 +1013,17 @@ export const listIndexedRepositories = async (
       service_count?: string;
     }>(sql);
 
+    // Transform query results with proper type conversion
     return result.rows.map((row) => ({
       repo_id: row.repo_id,
       repo_name: row.repo_name,
       repo_type: row.repo_type,
       repo_path: row.repo_path,
       last_indexed: row.indexed_at,
-      indexed_at: row.indexed_at.toISOString(),
+      indexed_at: row.indexed_at.toISOString(), // Convert to ISO 8601 string
       version: row.version,
       upstream_url: row.upstream_url,
-      file_count: parseInt(row.file_count, 10),
+      file_count: parseInt(row.file_count, 10), // PostgreSQL COUNT returns string
       metadata: includeMetadata ? row.metadata : undefined,
       workspace_count: includeWorkspaceCount ? parseInt(row.workspace_count ?? '0', 10) : undefined,
       service_count: includeServiceCount ? parseInt(row.service_count ?? '0', 10) : undefined,

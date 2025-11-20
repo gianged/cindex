@@ -66,6 +66,9 @@ export class LRUCache<T> {
   /**
    * Get value from cache
    *
+   * LRU behavior: On cache hit, entry is moved to end of cache (most recently used).
+   * Expired entries are automatically deleted on access.
+   *
    * @param key - Cache key
    * @returns Cached value or undefined if not found/expired
    */
@@ -77,7 +80,7 @@ export class LRUCache<T> {
       return undefined;
     }
 
-    // Check if expired
+    // Check if expired (TTL exceeded)
     const now = Date.now();
     if (now - entry.timestamp > entry.ttl) {
       this.cache.delete(key);
@@ -85,7 +88,7 @@ export class LRUCache<T> {
       return undefined;
     }
 
-    // Move to end (most recently used)
+    // Move to end (most recently used) for LRU eviction policy
     this.cache.delete(key);
     this.cache.set(key, entry);
 
@@ -96,21 +99,25 @@ export class LRUCache<T> {
   /**
    * Set value in cache
    *
+   * If cache is full, evicts oldest entry (LRU).
+   * Updating an existing key does not trigger eviction.
+   *
    * @param key - Cache key
    * @param value - Value to cache
    * @param ttl - TTL in milliseconds (optional, uses default if not provided)
    */
   set(key: string, value: T, ttl?: number): void {
-    // Evict oldest entry if at max size
+    // Evict oldest entry if at max size (only for new keys)
     if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
       const firstKeyIterator = this.cache.keys().next();
       if (!firstKeyIterator.done && firstKeyIterator.value) {
+        // Map maintains insertion order, first key is least recently used
         this.cache.delete(firstKeyIterator.value);
         this.evictions++;
       }
     }
 
-    // Add/update entry
+    // Add or update entry with current timestamp
     this.cache.set(key, {
       value,
       timestamp: Date.now(),
@@ -184,32 +191,47 @@ export class LRUCache<T> {
 }
 
 /**
- * Generate cache key from object
+ * Generate deterministic cache key from object
  *
- * Creates a deterministic hash from an object for use as cache key.
+ * Creates SHA256 hash of sorted JSON representation.
+ * Sorting keys ensures consistent hashing for objects with same properties in different order.
  *
  * @param obj - Object to hash
- * @returns Cache key (SHA256 hash)
+ * @returns 16-character cache key (truncated SHA256 hash)
  */
 export const generateCacheKey = (obj: unknown): string => {
+  // Sort keys for deterministic JSON representation
   const json = JSON.stringify(obj, Object.keys(obj as object).sort());
+  // Use SHA256 hash, truncate to 16 chars for readability
   return createHash('sha256').update(json).digest('hex').substring(0, 16);
 };
 
 /**
- * Global cache instances
+ * Global cache instances for different use cases
  */
 
-// Query embedding cache: query text → embedding vector
-// TTL: 30 minutes (embeddings don't change)
+/**
+ * Cache for query embeddings
+ * - Maps query text to embedding vectors
+ * - TTL: 30 minutes (embeddings are deterministic)
+ * - Max size: 500 entries
+ */
 export const queryEmbeddingCache = new LRUCache<number[]>(500, 30 * 60 * 1000);
 
-// Search result cache: query + options → SearchResult
-// TTL: 5 minutes (results may change as code is indexed)
+/**
+ * Cache for search results
+ * - Maps (query + options) to search results
+ * - TTL: 5 minutes (results may change as code is indexed)
+ * - Max size: 200 entries
+ */
 export const searchResultCache = new LRUCache<unknown>(200, 5 * 60 * 1000);
 
-// API endpoint cache: service IDs → endpoints
-// TTL: 10 minutes (API contracts don't change frequently)
+/**
+ * Cache for API endpoints
+ * - Maps service IDs to endpoint lists
+ * - TTL: 10 minutes (API contracts rarely change)
+ * - Max size: 100 entries
+ */
 export const apiEndpointCache = new LRUCache<unknown>(100, 10 * 60 * 1000);
 
 /**

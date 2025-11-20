@@ -51,7 +51,8 @@ interface FileRetrievalRow {
  * @param scopeFilter - Scope filter from Stage 0 (optional, null for single-repo mode)
  * @param maxFiles - Maximum files to return (default: 15)
  * @param similarityThreshold - Minimum similarity score (default: 0.70)
- * @returns Array of relevant files ranked by similarity
+ * @returns Array of relevant files ranked by similarity (includes metadata like imports, exports, line count)
+ * @throws Error if database query fails or embedding dimensions mismatch
  */
 export const retrieveFiles = async (
   queryEmbedding: QueryEmbedding,
@@ -81,19 +82,22 @@ export const retrieveFiles = async (
   const params: unknown[] = [embeddingVector, threshold];
   let paramIndex = 3;
 
-  // Apply scope filtering if provided
+  // Apply scope filtering if provided (multi-project mode)
+  // Filter by repository IDs (from Stage 0)
   if (scopeFilter && scopeFilter.repo_ids.length > 0) {
     whereClauses.push(`repo_id = ANY($${paramIndex.toString()}::text[])`);
     params.push(scopeFilter.repo_ids);
     paramIndex++;
   }
 
+  // Filter by workspace IDs (monorepo packages)
   if (scopeFilter && scopeFilter.workspace_ids.length > 0) {
     whereClauses.push(`workspace_id = ANY($${paramIndex.toString()}::text[])`);
     params.push(scopeFilter.workspace_ids);
     paramIndex++;
   }
 
+  // Filter by service IDs (microservices)
   if (scopeFilter && scopeFilter.service_ids.length > 0) {
     whereClauses.push(`service_id = ANY($${paramIndex.toString()}::text[])`);
     params.push(scopeFilter.service_ids);

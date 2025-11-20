@@ -27,6 +27,9 @@ import {
 
 /**
  * Token estimation constants
+ *
+ * Used for context size calculations and warnings (target: <100k tokens).
+ * Actual chunk tokens are pre-calculated during indexing and stored in code_chunks.token_count.
  */
 const TOKENS_PER_SYMBOL = 50; // Estimated tokens per symbol definition
 const TOKENS_PER_IMPORT = 30; // Estimated tokens per import chain entry
@@ -42,6 +45,8 @@ interface RepositoryMetadataRow {
 
 /**
  * Fetch repository metadata for repos found in search results
+ *
+ * Retrieves repo_type and metadata JSONB column for version tracking and context grouping.
  *
  * @param db - Database client
  * @param repoIds - Repository IDs to fetch metadata for
@@ -333,9 +338,10 @@ const countTotalTokens = (chunks: RelevantChunk[], symbols: ResolvedSymbol[], im
  * Generate boundary crossing warnings for multi-project searches
  *
  * Warns when workspace or service boundaries are crossed unexpectedly.
+ * Boundary crossings may indicate tight coupling or architectural issues.
  *
- * @param imports - Import chains
- * @returns Array of boundary warnings
+ * @param imports - Import chains with boundary markers
+ * @returns Array of boundary warnings (info for workspace, warning for service)
  */
 const generateBoundaryWarnings = (imports: ImportChain[]): SearchWarning[] => {
   const warnings: SearchWarning[] = [];
@@ -368,9 +374,11 @@ const generateBoundaryWarnings = (imports: ImportChain[]): SearchWarning[] => {
 /**
  * Generate reference repository warnings
  *
- * Warns about outdated reference repositories and similar code in references vs main code.
+ * Warns about:
+ * - Reference repos included in results (info level)
+ * - Outdated reference repos (>3 months since last index, warning level)
  *
- * @param repoMetadata - Repository metadata map
+ * @param repoMetadata - Repository metadata map with repo_type and last_indexed
  * @returns Array of reference warnings
  */
 const generateReferenceWarnings = (
