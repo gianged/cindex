@@ -156,6 +156,7 @@ If you prefer to manually edit configuration files, you can add cindex to:
 {
   "mcpServers": {
     "cindex": {
+      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@gianged/cindex"],
       "env": {
@@ -172,6 +173,7 @@ If you prefer to manually edit configuration files, you can add cindex to:
 {
   "mcpServers": {
     "cindex": {
+      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@gianged/cindex"],
       "env": {
@@ -277,6 +279,7 @@ Only the required password:
 {
   "mcpServers": {
     "cindex": {
+      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@gianged/cindex"],
       "env": {
@@ -295,6 +298,7 @@ All available settings with defaults shown:
 {
   "mcpServers": {
     "cindex": {
+      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@gianged/cindex"],
       "env": {
@@ -327,6 +331,7 @@ For faster indexing with lower quality:
 {
   "mcpServers": {
     "cindex": {
+      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@gianged/cindex"],
       "env": {
@@ -639,7 +644,8 @@ similarity scores.
 
 ### Documentation Tools
 
-Standalone tools for indexing and searching markdown documentation (syntax references, Context7-fetched docs, etc.). Separate from code indexing.
+Standalone tools for indexing and searching markdown documentation (syntax references,
+Context7-fetched docs, etc.). Separate from code indexing.
 
 #### `index_documentation`
 
@@ -647,14 +653,17 @@ Index markdown files for documentation search. Works with explicit paths only.
 
 **Parameters:**
 
-- `paths` (required) - Array of file or directory paths to index (e.g., `['syntax.md', '/docs/libraries/']`)
+- `paths` (required) - Array of file or directory paths to index (e.g.,
+  `['syntax.md', '/docs/libraries/']`)
 - `doc_id` - Document identifier (default: derived from path)
 - `tags` - Tags for filtering (e.g., `['typescript', 'react']`)
 - `force_reindex` - Force re-index even if unchanged (default: false)
 
-**Returns:** Indexing statistics including files indexed, sections created, code blocks extracted, and timing.
+**Returns:** Indexing statistics including files indexed, sections created, code blocks extracted,
+and timing.
 
 **Workflow:**
+
 1. Fetch documentation (e.g., from Context7)
 2. Save to markdown file
 3. Index with `index_documentation`
@@ -673,7 +682,8 @@ Semantic search for indexed documentation using vector similarity.
 - `include_code_blocks` - Include code block results (default: true)
 - `similarity_threshold` - Minimum similarity (0.0-1.0, default: 0.65)
 
-**Returns:** Ranked results with heading breadcrumbs, content snippets, code blocks, and relevance scores.
+**Returns:** Ranked results with heading breadcrumbs, content snippets, code blocks, and relevance
+scores.
 
 #### `list_documentation`
 
@@ -684,7 +694,8 @@ List all indexed documentation with metadata.
 - `doc_ids` - Filter by document IDs (optional)
 - `tags` - Filter by tags (optional)
 
-**Returns:** List of indexed documents with file counts, section counts, code block counts, and indexed timestamps.
+**Returns:** List of indexed documents with file counts, section counts, code block counts, and
+indexed timestamps.
 
 #### `delete_documentation`
 
