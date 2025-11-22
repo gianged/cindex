@@ -32,6 +32,7 @@ import {
   type CodeFile,
   type CrossRepoDependency,
   type Repository,
+  type RepositoryMetadata,
   type Service,
   type Workspace,
   type WorkspaceAlias,
@@ -114,6 +115,24 @@ export class IndexingOrchestrator {
     });
 
     try {
+      // Stage 0: Persist repository metadata
+      // This must happen before file discovery so files can reference the repository
+      if (options.repoId) {
+        const repository: Omit<Repository, 'id' | 'indexed_at' | 'last_updated'> = {
+          repo_id: options.repoId,
+          repo_name: options.repoName ?? options.repoId,
+          repo_path: repoPath,
+          repo_type: options.repoType ?? 'monolithic',
+          workspace_config: null, // Populated during workspace detection
+          workspace_patterns: null, // Populated during workspace detection
+          root_package_json: null, // Populated during workspace detection
+          git_remote_url: null, // Could extract from git, but not critical
+          metadata: options.metadata as RepositoryMetadata | null,
+        };
+
+        await this.persistRepositoryMetadata(repository);
+      }
+
       // Stage 1: File Discovery
       this.progressTracker.setStage(IndexingStage.Discovering);
       const discoveredFiles = await this.fileWalker.discoverFiles();
@@ -384,6 +403,11 @@ export class IndexingOrchestrator {
         total_imports: structureMetadata.imports.length,
         total_exports: structureMetadata.exports.length,
       },
+      // Multi-project context from discovered file
+      repo_id: file.repo_id,
+      workspace_id: file.workspace_id,
+      package_name: file.package_name,
+      service_id: file.service_id,
     };
 
     const chunkEmbedding: ChunkEmbedding = {

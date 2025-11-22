@@ -423,3 +423,69 @@ export const SearchAPIContractsSchema = z.object({
   max_results: z.number().int().min(1).max(100).optional(),
   similarity_threshold: z.number().min(0).max(1).optional(),
 });
+
+// Documentation Tools Schemas
+
+/**
+ * Zod schema for index_documentation MCP tool
+ *
+ * Indexes markdown files for documentation search. Standalone from code indexing.
+ * Use for syntax.md, Context7-fetched docs, or any reference documentation.
+ *
+ * @property paths - Markdown file paths or directories to index (required)
+ * @property doc_id - Custom identifier for the documentation (defaults to filename/folder)
+ * @property tags - Searchable tags for filtering (e.g., ["nestjs", "api", "context7"])
+ * @property force_reindex - Re-index even if files unchanged (default: false)
+ */
+export const IndexDocumentationSchema = z.object({
+  paths: z.array(z.string().min(1)).min(1, 'At least one path is required'),
+  doc_id: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  force_reindex: z.boolean().optional(),
+});
+
+/**
+ * Zod schema for search_documentation MCP tool
+ *
+ * Search indexed documentation using semantic similarity.
+ * Returns ranked results with section context and code blocks.
+ *
+ * @property query - Search query (minimum 2 characters)
+ * @property tags - Filter by tags
+ * @property doc_ids - Filter by documentation IDs
+ * @property max_results - Maximum results to return (1-50, default: 10)
+ * @property include_code_blocks - Include code blocks in results (default: true)
+ * @property similarity_threshold - Minimum similarity score (0-1, default: 0.65)
+ */
+export const SearchDocumentationSchema = z.object({
+  query: z.string().min(2, 'Query must be at least 2 characters'),
+  tags: z.array(z.string()).optional(),
+  doc_ids: z.array(z.string()).optional(),
+  max_results: z.number().int().min(1).max(50).optional(),
+  include_code_blocks: z.boolean().optional(),
+  similarity_threshold: z.number().min(0).max(1).optional(),
+});
+
+/**
+ * Zod schema for list_documentation MCP tool
+ *
+ * List all indexed documentation with optional filtering.
+ *
+ * @property doc_ids - Filter by documentation IDs
+ * @property tags - Filter by tags
+ */
+export const ListDocumentationSchema = z.object({
+  doc_ids: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+/**
+ * Zod schema for delete_documentation MCP tool
+ *
+ * Delete indexed documentation by ID.
+ *
+ * @property doc_ids - Documentation IDs to delete (minimum 1 required)
+ */
+export const DeleteDocumentationSchema = z.object({
+  doc_ids: z.array(z.string().min(1)).min(1, 'At least one doc_id is required'),
+});

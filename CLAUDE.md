@@ -219,11 +219,13 @@ npm start
   - Stage 8: Context assembly ✅
 - **MCP Tools** (Phase 5: 100%)
   - MCP server framework with lifecycle management ✅
-  - All 13 tools implemented and registered ✅
+  - All 17 tools implemented and registered ✅
   - 4 core tools: search_codebase, get_file_context, find_symbol, index_repository ✅
   - 9 specialized tools: list_indexed_repos, list_workspaces, list_services, get_workspace_context,
     get_service_context, find_cross_workspace_usages, find_cross_service_calls,
     search_api_contracts, delete_repository ✅
+  - 4 documentation tools: index_documentation, search_documentation, list_documentation,
+    delete_documentation ✅
   - Complete input validation (validator.ts - 514 lines) ✅
   - Complete output formatting (formatter.ts - 1,130 lines) ✅
   - Error handling with user-friendly messages ✅
@@ -263,7 +265,7 @@ npm start
 - Phase 2: ✅ 100% Complete (Base Indexing & Version Tracking)
 - Phase 3: ✅ 100% Complete (Embeddings, Language Support, Project Detection)
 - Phase 4: ✅ 100% Complete (Multi-Stage Retrieval - 9-stage pipeline)
-- Phase 5: ✅ 100% Complete (MCP Tools - 13/13 tools with full features)
+- Phase 5: ✅ 100% Complete (MCP Tools - 17/17 tools with full features)
 - Phase 6: ✅ 100% Complete (Optimization & Testing)
 
 See `docs/tasks/phase-*.md` for detailed task breakdowns and checklists.
@@ -283,6 +285,7 @@ src/
 │   ├── alias-resolver.ts      # Import alias resolution
 │   ├── indexing-strategy.ts   # Repository type indexing strategies
 │   ├── markdown-indexer.ts    # Markdown documentation indexing
+│   ├── doc-chunker.ts    # Markdown chunking for documentation tools
 │   ├── version-tracker.ts     # Version tracking and re-indexing
 │   ├── summary.ts        # LLM-based file summary generation
 │   ├── embeddings.ts     # Embedding generation with enhanced text
@@ -290,21 +293,25 @@ src/
 │   └── orchestrator.ts   # Pipeline coordination (Phases 1-3)
 ├── retrieval/            # Search and retrieval
 │   ├── vector-search.ts  # pgvector similarity search with scope filtering
+│   ├── doc-search.ts     # Documentation search and management
 │   └── deduplicator.ts   # Result prioritization and deduplication
 ├── database/             # PostgreSQL client
 │   ├── client.ts         # Connection pool management
 │   └── writer.ts         # Database persistence with batch optimization
-├── mcp/                  # MCP tool implementations (future)
+├── mcp/                  # MCP tool implementations
 │   ├── search-codebase.ts
 │   ├── get-file-context.ts
 │   ├── find-symbol.ts
-│   └── index-repository.ts
+│   ├── index-repository.ts
+│   ├── index-documentation.ts   # Documentation indexing tool
+│   └── search-documentation.ts  # Documentation search tools
 ├── types/                # TypeScript type definitions
 │   ├── database.ts       # Database schema types
 │   ├── config.ts         # Configuration types
 │   ├── workspace.ts      # Workspace detection types
 │   ├── service.ts        # Service detection types
 │   ├── indexing.ts       # Indexing pipeline types
+│   ├── documentation.ts  # Documentation tool types
 │   └── mcp-tools.ts      # MCP tool types
 ├── utils/                # Shared utilities
 │   ├── ollama.ts         # Ollama API client
@@ -343,6 +350,13 @@ Additional tables for multi-project/monorepo/microservice support:
 - **`workspace_aliases`:** Import alias resolution (@workspace/pkg → filesystem path)
 - **`cross_repo_dependencies`:** Cross-service dependency tracking (source→target, api_contracts)
 - **`workspace_dependencies`:** Internal monorepo dependencies
+
+### Documentation Tables (Standalone)
+
+Separate tables for standalone documentation indexing (syntax references, Context7-fetched docs):
+
+- **`documentation_chunks`:** Vector embeddings for documentation sections and code blocks
+- **`documentation_files`:** File metadata with front matter, table of contents, tags
 
 **Column Extensions:** All base tables (`code_chunks`, `code_files`, `code_symbols`) have additional
 columns:

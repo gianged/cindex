@@ -8,7 +8,8 @@ for Claude Code. Handles 1M+ lines of code with accuracy-first design.
 ## Features
 
 - **Semantic Search** - Vector embeddings for intelligent code discovery
-- **9-Stage Retrieval Pipeline** - Scope filtering → query → files → chunks → symbols → imports → APIs → dedup → assembly
+- **9-Stage Retrieval Pipeline** - Scope filtering → query → files → chunks → symbols → imports →
+  APIs → dedup → assembly
 - **Multi-Project Support** - Monorepo, microservices, and reference repository indexing
 - **Scope Filtering** - Global, repository, service, and boundary-aware search modes
 - **API Contract Search** - Semantic search for REST/GraphQL/gRPC endpoints
@@ -18,7 +19,7 @@ for Claude Code. Handles 1M+ lines of code with accuracy-first design.
 - **Import Chain Analysis** - Automatic dependency resolution
 - **Deduplication** - Remove duplicate utility functions
 - **Large Codebase Support** - Efficiently handles 1M+ LoC
-- **Claude Code Integration** - Native MCP server with 13 tools
+- **Claude Code Integration** - Native MCP server with 17 tools
 - **Accuracy-First** - Default settings optimized for relevance
 - **Configurable Models** - Swap embedding/LLM models via env vars
 
@@ -209,15 +210,15 @@ All configuration is done through environment variables in your MCP config file.
 
 ### Model Configuration
 
-| Variable                   | Default                  | Range         | Description                                      |
-| -------------------------- | ------------------------ | ------------- | ------------------------------------------------ |
-| `EMBEDDING_MODEL`          | `bge-m3:567m`            | -             | Ollama embedding model for vector generation     |
-| `EMBEDDING_DIMENSIONS`     | `1024`                   | 1-4096        | Vector dimensions (must match model output)      |
-| `EMBEDDING_CONTEXT_WINDOW` | `4096`                   | 512-131072    | Token limit for embedding model                  |
-| `SUMMARY_MODEL`            | `qwen2.5-coder:7b`       | -             | Ollama model for file summaries                  |
-| `SUMMARY_CONTEXT_WINDOW`   | `4096`                   | 512-131072    | Token limit for summary model                    |
-| `OLLAMA_HOST`              | `http://localhost:11434` | -             | Ollama API endpoint                              |
-| `OLLAMA_TIMEOUT`           | `30000`                  | 1000-300000   | Request timeout in milliseconds                  |
+| Variable                   | Default                  | Range       | Description                                  |
+| -------------------------- | ------------------------ | ----------- | -------------------------------------------- |
+| `EMBEDDING_MODEL`          | `bge-m3:567m`            | -           | Ollama embedding model for vector generation |
+| `EMBEDDING_DIMENSIONS`     | `1024`                   | 1-4096      | Vector dimensions (must match model output)  |
+| `EMBEDDING_CONTEXT_WINDOW` | `4096`                   | 512-131072  | Token limit for embedding model              |
+| `SUMMARY_MODEL`            | `qwen2.5-coder:7b`       | -           | Ollama model for file summaries              |
+| `SUMMARY_CONTEXT_WINDOW`   | `4096`                   | 512-131072  | Token limit for summary model                |
+| `OLLAMA_HOST`              | `http://localhost:11434` | -           | Ollama API endpoint                          |
+| `OLLAMA_TIMEOUT`           | `30000`                  | 1000-300000 | Request timeout in milliseconds              |
 
 **Context Window Notes:**
 
@@ -240,22 +241,22 @@ All configuration is done through environment variables in your MCP config file.
 
 ### Performance Tuning
 
-| Variable               | Default | Range     | Description                                          |
-| ---------------------- | ------- | --------- | ---------------------------------------------------- |
-| `HNSW_EF_SEARCH`       | `300`   | 10-1000   | HNSW search quality (higher = more accurate, slower) |
-| `HNSW_EF_CONSTRUCTION` | `200`   | 10-1000   | HNSW index quality (higher = better index)           |
-| `SIMILARITY_THRESHOLD` | `0.75`  | 0.0-1.0   | Minimum similarity for retrieval                     |
-| `DEDUP_THRESHOLD`      | `0.92`  | 0.0-1.0   | Similarity threshold for deduplication               |
-| `IMPORT_DEPTH`         | `3`     | 1-10      | Maximum import chain traversal depth                 |
-| `WORKSPACE_DEPTH`      | `2`     | 1-10      | Maximum workspace dependency depth                   |
-| `SERVICE_DEPTH`        | `1`     | 1-10      | Maximum service dependency depth                     |
+| Variable               | Default | Range   | Description                                          |
+| ---------------------- | ------- | ------- | ---------------------------------------------------- |
+| `HNSW_EF_SEARCH`       | `300`   | 10-1000 | HNSW search quality (higher = more accurate, slower) |
+| `HNSW_EF_CONSTRUCTION` | `200`   | 10-1000 | HNSW index quality (higher = better index)           |
+| `SIMILARITY_THRESHOLD` | `0.75`  | 0.0-1.0 | Minimum similarity for retrieval                     |
+| `DEDUP_THRESHOLD`      | `0.92`  | 0.0-1.0 | Similarity threshold for deduplication               |
+| `IMPORT_DEPTH`         | `3`     | 1-10    | Maximum import chain traversal depth                 |
+| `WORKSPACE_DEPTH`      | `2`     | 1-10    | Maximum workspace dependency depth                   |
+| `SERVICE_DEPTH`        | `1`     | 1-10    | Maximum service dependency depth                     |
 
 ### Indexing Configuration
 
-| Variable           | Default | Range       | Description                        |
-| ------------------ | ------- | ----------- | ---------------------------------- |
-| `MAX_FILE_SIZE`    | `5000`  | 100-100000  | Maximum file size in lines         |
-| `INCLUDE_MARKDOWN` | `false` | true/false  | Include markdown files in indexing |
+| Variable           | Default | Range      | Description                        |
+| ------------------ | ------- | ---------- | ---------------------------------- |
+| `MAX_FILE_SIZE`    | `5000`  | 100-100000 | Maximum file size in lines         |
+| `INCLUDE_MARKDOWN` | `false` | true/false | Include markdown files in indexing |
 
 ### Feature Flags
 
@@ -348,6 +349,25 @@ For faster indexing with lower quality:
 - **Query Time**: <500ms (vs <800ms default)
 - **Relevance**: >85% in top 10 results (vs >92% default)
 
+## Recommended Settings
+
+### RTX 4060 / 8GB VRAM (Tested Configuration)
+
+| Setting                    | Value              | Notes                              |
+| -------------------------- | ------------------ | ---------------------------------- |
+| `EMBEDDING_MODEL`          | `bge-m3:567m`      | Best accuracy/speed balance        |
+| `SUMMARY_MODEL`            | `qwen2.5-coder:7b` | Good summaries, fits in VRAM       |
+| `EMBEDDING_CONTEXT_WINDOW` | `4096`             | Default, sufficient for most files |
+| `HNSW_EF_SEARCH`           | `300`              | High accuracy retrieval            |
+| `SIMILARITY_THRESHOLD`     | `0.30`             | Optimized for chunk retrieval      |
+| `DEDUP_THRESHOLD`          | `0.92`             | Prevent duplicate results          |
+
+### Performance Expectations
+
+- **Indexing:** ~30 files/min (~70 chunks/min)
+- **Search:** <1 second per query
+- **Codebase:** Tested with 40k LoC (112 files)
+
 ## Managing Configuration
 
 ### Verify Installation
@@ -406,7 +426,7 @@ claude mcp remove cindex
 
 ## MCP Tools
 
-**Status: 13 of 13 tools implemented**
+**Status: 17 of 17 tools implemented**
 
 All tools provide structured output with syntax highlighting and comprehensive metadata.
 
@@ -617,6 +637,65 @@ Search API endpoints across services with semantic understanding.
 **Returns:** API endpoints with paths, HTTP methods, service names, implementation files, and
 similarity scores.
 
+### Documentation Tools
+
+Standalone tools for indexing and searching markdown documentation (syntax references, Context7-fetched docs, etc.). Separate from code indexing.
+
+#### `index_documentation`
+
+Index markdown files for documentation search. Works with explicit paths only.
+
+**Parameters:**
+
+- `paths` (required) - Array of file or directory paths to index (e.g., `['syntax.md', '/docs/libraries/']`)
+- `doc_id` - Document identifier (default: derived from path)
+- `tags` - Tags for filtering (e.g., `['typescript', 'react']`)
+- `force_reindex` - Force re-index even if unchanged (default: false)
+
+**Returns:** Indexing statistics including files indexed, sections created, code blocks extracted, and timing.
+
+**Workflow:**
+1. Fetch documentation (e.g., from Context7)
+2. Save to markdown file
+3. Index with `index_documentation`
+4. Search with `search_documentation`
+
+#### `search_documentation`
+
+Semantic search for indexed documentation using vector similarity.
+
+**Parameters:**
+
+- `query` (required) - Natural language search query
+- `doc_ids` - Filter by document IDs (optional)
+- `tags` - Filter by tags (optional)
+- `max_results` - Maximum results (1-50, default: 10)
+- `include_code_blocks` - Include code block results (default: true)
+- `similarity_threshold` - Minimum similarity (0.0-1.0, default: 0.65)
+
+**Returns:** Ranked results with heading breadcrumbs, content snippets, code blocks, and relevance scores.
+
+#### `list_documentation`
+
+List all indexed documentation with metadata.
+
+**Parameters:**
+
+- `doc_ids` - Filter by document IDs (optional)
+- `tags` - Filter by tags (optional)
+
+**Returns:** List of indexed documents with file counts, section counts, code block counts, and indexed timestamps.
+
+#### `delete_documentation`
+
+Delete indexed documentation by document ID.
+
+**Parameters:**
+
+- `doc_ids` (required) - Array of document IDs to delete
+
+**Returns:** Deletion confirmation with chunks and files removed.
+
 ---
 
 See [docs/overview.md](./docs/overview.md) for complete tool documentation including
@@ -735,11 +814,11 @@ npm test
 - Phase 2 (100%) - File discovery, parsing, chunking, workspace/service detection
 - Phase 3 (100%) - Embeddings, summaries, API parsing, 12-language support, Docker/serverless/mobile
   detection
-- Phase 4 (0%) - Multi-stage retrieval pipeline (planned)
-- Phase 5 (100%) - MCP tools (13 of 13 implemented)
-- Phase 6 (0%) - Incremental indexing, optimization (planned)
+- Phase 4 (100%) - Multi-stage retrieval pipeline (9-stage)
+- Phase 5 (100%) - MCP tools (17 of 17 implemented)
+- Phase 6 (100%) - Incremental indexing, optimization, testing
 
-**Overall: ~75% complete**
+**Overall: 100% complete**
 
 ## License
 

@@ -18,15 +18,23 @@ import { findSymbolTool, type FindSymbolInput } from '@mcp/find-symbol';
 import { getFileContextTool, type GetFileContextInput } from '@mcp/get-file-context';
 import { getServiceContextTool, type GetServiceContextInput } from '@mcp/get-service-context';
 import { getWorkspaceContextTool, type GetWorkspaceContextInput } from '@mcp/get-workspace-context';
+import { formatIndexDocumentationOutput, indexDocumentationTool } from '@mcp/index-documentation';
 import { indexRepositoryTool, type IndexRepositoryInput } from '@mcp/index-repository';
 import { listIndexedReposTool, type ListIndexedReposInput } from '@mcp/list-indexed-repos';
 import { listServicesTool, type ListServicesInput } from '@mcp/list-services';
 import { listWorkspacesTool, type ListWorkspacesInput } from '@mcp/list-workspaces';
 import { searchAPIContractsTool, type SearchAPIContractsInput } from '@mcp/search-api-contracts';
 import { searchCodebaseTool, type SearchCodebaseInput } from '@mcp/search-codebase';
+import { deleteDocumentationTool, listDocumentationTool, searchDocumentationTool } from '@mcp/search-documentation';
 import { logger } from '@utils/logger';
 import { type OllamaClient } from '@utils/ollama';
 import { type CindexConfig } from '@/types/config';
+import {
+  type DeleteDocumentationInput,
+  type IndexDocumentationInput,
+  type ListDocumentationInput,
+  type SearchDocumentationInput,
+} from '@/types/documentation';
 
 /**
  * MCP tool return type
@@ -36,8 +44,9 @@ import { type CindexConfig } from '@/types/config';
  * provides machine-readable data for programmatic access.
  */
 interface MCPToolResult {
+  [key: string]: unknown; // Index signature for MCP SDK compatibility
   content: { type: 'text'; text: string }[]; // Formatted text output (Markdown)
-  structuredContent?: unknown; // Structured data for programmatic access
+  structuredContent?: Record<string, unknown>; // Structured data for programmatic access
 }
 
 /**
@@ -430,6 +439,118 @@ export const searchAPIContractsMCP = async (
     };
   } catch (error) {
     logger.error('search_api_contracts tool failed', { error });
+    throw error;
+  }
+};
+
+// Documentation Tools MCP Wrappers
+
+/**
+ * index_documentation MCP wrapper
+ *
+ * Indexes markdown files for documentation search.
+ */
+export const indexDocumentationMCP = async (
+  db: Pool,
+  ollama: OllamaClient,
+  config: CindexConfig,
+  input: IndexDocumentationInput
+): Promise<MCPToolResult> => {
+  try {
+    const result = await indexDocumentationTool(db, ollama, config.embedding, input);
+
+    return {
+      content: [{ type: 'text', text: formatIndexDocumentationOutput(result) }],
+      structuredContent: {
+        success: result.success,
+        doc_id: result.doc_id,
+        files_indexed: result.files_indexed,
+        files_skipped: result.files_skipped,
+        chunks_created: result.chunks_created,
+        code_blocks_indexed: result.code_blocks_indexed,
+        sections_indexed: result.sections_indexed,
+        errors: result.errors,
+        duration_ms: result.duration_ms,
+      },
+    };
+  } catch (error) {
+    logger.error('index_documentation tool failed', { error });
+    throw error;
+  }
+};
+
+/**
+ * search_documentation MCP wrapper
+ *
+ * Search indexed documentation using semantic similarity.
+ */
+export const searchDocumentationMCP = async (
+  db: Pool,
+  ollama: OllamaClient,
+  config: CindexConfig,
+  input: SearchDocumentationInput
+): Promise<MCPToolResult> => {
+  try {
+    const result = await searchDocumentationTool(db, ollama, config.embedding, input);
+
+    return {
+      content: [{ type: 'text', text: result.formatted_result }],
+      structuredContent: {
+        query: result.output.query,
+        total_results: result.output.total_results,
+        search_time_ms: result.output.search_time_ms,
+        results: result.output.results,
+      },
+    };
+  } catch (error) {
+    logger.error('search_documentation tool failed', { error });
+    throw error;
+  }
+};
+
+/**
+ * list_documentation MCP wrapper
+ *
+ * List all indexed documentation.
+ */
+export const listDocumentationMCP = async (db: Pool, input: ListDocumentationInput): Promise<MCPToolResult> => {
+  try {
+    const result = await listDocumentationTool(db, input);
+
+    return {
+      content: [{ type: 'text', text: result.formatted_result }],
+      structuredContent: {
+        total_documents: result.output.total_documents,
+        total_chunks: result.output.total_chunks,
+        documents: result.output.documents,
+      },
+    };
+  } catch (error) {
+    logger.error('list_documentation tool failed', { error });
+    throw error;
+  }
+};
+
+/**
+ * delete_documentation MCP wrapper
+ *
+ * Delete indexed documentation by ID.
+ */
+export const deleteDocumentationMCP = async (db: Pool, input: DeleteDocumentationInput): Promise<MCPToolResult> => {
+  try {
+    const result = await deleteDocumentationTool(db, input);
+
+    return {
+      content: [{ type: 'text', text: result.formatted_result }],
+      structuredContent: {
+        success: result.output.success,
+        deleted_doc_ids: result.output.deleted_doc_ids,
+        chunks_deleted: result.output.chunks_deleted,
+        files_deleted: result.output.files_deleted,
+      },
+    };
+  } catch (error) {
+    logger.error('delete_documentation tool failed', { error });
     throw error;
   }
 };

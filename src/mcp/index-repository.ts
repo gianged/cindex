@@ -2,6 +2,8 @@
  * MCP Tool: index_repository
  * Index or re-index a codebase with progress notifications
  */
+import path from 'node:path';
+
 import { type IndexingOrchestrator } from '@indexing/orchestrator';
 import { formatIndexingStats, type IndexingStats } from '@mcp/formatter';
 import {
@@ -164,7 +166,9 @@ export const indexRepositoryTool = async (
   const summaryMethod = validateSummaryMethod(input.summary_method, false) ?? 'llm';
 
   // Validate repository configuration
-  const repoId = validateRepoId(input.repo_id, false);
+  // Auto-generate repo_id from folder name if not provided
+  const validatedRepoId = validateRepoId(input.repo_id, false);
+  const repoId = validatedRepoId ?? path.basename(repoPath);
   const repoName = validateString('repo_name', input.repo_name, false);
   const repoType = validateRepoType(input.repo_type, false);
 
@@ -283,7 +287,7 @@ export const indexRepositoryTool = async (
 
   // Transform stats for output
   const transformedStats: IndexingStats = {
-    repo_id: repoId ?? stats.repo_id ?? 'unknown',
+    repo_id: repoId,
     repo_type: (repoType ?? 'monolithic') as RepositoryType,
     files_indexed: stats.files_indexed,
     chunks_created: stats.chunks_created,

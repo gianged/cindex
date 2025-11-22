@@ -62,8 +62,9 @@ export const retrieveChunks = async (
 ): Promise<RelevantChunk[]> => {
   const startTime = Date.now();
 
-  // Use higher threshold for chunks (default: 0.75)
-  const threshold = chunkSimilarityThreshold ?? 0.75;
+  // Use moderate threshold for chunks (default: 0.30)
+  // Note: Chunks include file summaries but still score lower than file-level matches
+  const threshold = chunkSimilarityThreshold ?? 0.3;
 
   // Extract file paths from Stage 1 results
   const filePaths = relevantFiles.map((f) => f.file_path);
@@ -209,7 +210,7 @@ export const retrieveChunksFiltered = async (
   chunkSimilarityThreshold?: number
 ): Promise<RelevantChunk[]> => {
   const startTime = Date.now();
-  const threshold = chunkSimilarityThreshold ?? 0.75;
+  const threshold = chunkSimilarityThreshold ?? 0.3;
   const filePaths = relevantFiles.map((f) => f.file_path);
 
   if (filePaths.length === 0) {

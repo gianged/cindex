@@ -117,7 +117,11 @@ export class EmbeddingGenerator {
    * @param fileSummary - Optional file summary for semantic context (applies to all chunks in batch)
    * @returns Array of chunk embeddings
    */
-  public generateBatch = async (chunks: CodeChunkInput[], concurrency = 5, fileSummary?: string): Promise<ChunkEmbedding[]> => {
+  public generateBatch = async (
+    chunks: CodeChunkInput[],
+    concurrency = 5,
+    fileSummary?: string
+  ): Promise<ChunkEmbedding[]> => {
     logger.info('Generating batch embeddings', {
       total: chunks.length,
       concurrency,
@@ -174,12 +178,12 @@ export class EmbeddingGenerator {
   };
 
   /**
-   * Build enhanced text format for chunk embedding
+   * Build enhanced text for chunk embedding
    *
-   * Format: "SUMMARY: {file_summary} | CODE: {content} | SYMBOLS: {list}"
+   * Concatenates file summary, code content, and symbols without artificial labels.
+   * Uses natural text flow to avoid semantic distance between queries and chunks.
    *
-   * Includes file summary for semantic context to improve natural language query matching.
-   * Removes file path and type labels as they add noise without semantic value.
+   * Format: "{summary}\n\n{code}\n\nSymbols: {list}"
    *
    * @param chunk - Code chunk to enhance
    * @param fileSummary - Optional file summary for semantic context
@@ -198,20 +202,24 @@ export class EmbeddingGenerator {
     }
 
     // Build symbol list (comma-separated, max 200 chars)
-    const symbolList = symbols.length > 0 ? symbols.join(', ') : 'none';
+    const symbolList = symbols.length > 0 ? symbols.join(', ') : '';
     const truncatedSymbols = symbolList.length > 200 ? symbolList.slice(0, 197) + '...' : symbolList;
 
-    // Build enhanced text with file summary for semantic context
-    // File summary provides natural language description that helps match queries
-    const enhancedText = [
-      fileSummary ? `SUMMARY: ${fileSummary}` : undefined,
-      `CODE: ${chunk.chunk_content}`,
-      `SYMBOLS: ${truncatedSymbols}`,
-    ]
-      .filter(Boolean)
-      .join(' | ');
+    // Build enhanced text without artificial labels
+    // Natural text flow improves semantic similarity with plain query text
+    const parts: string[] = [];
 
-    return enhancedText;
+    if (fileSummary) {
+      parts.push(fileSummary);
+    }
+
+    parts.push(chunk.chunk_content);
+
+    if (truncatedSymbols) {
+      parts.push(`Symbols: ${truncatedSymbols}`);
+    }
+
+    return parts.join('\n\n');
   };
 
   /**

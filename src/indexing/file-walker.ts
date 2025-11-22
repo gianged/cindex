@@ -431,8 +431,9 @@ export class FileWalker {
         encoding: 'utf-8',
       };
 
-      // Add multi-project context if enabled
-      if (this.options.enable_multi_repo && this.options.repoId) {
+      // Add repository context when repo_id is provided
+      // Note: repo_id should always be set when provided, regardless of enable_multi_repo flag
+      if (this.options.repoId) {
         discoveredFile.repo_id = this.options.repoId;
       }
 

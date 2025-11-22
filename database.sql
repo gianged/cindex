@@ -76,7 +76,7 @@ SET hnsw.ef_search = 300; -- Higher = better accuracy, slower queries (200-400 f
 -- Table and column comments (complex fields only)
 COMMENT ON COLUMN code_chunks.chunk_type IS 'file_summary, function, class, import_block, fallback';
 COMMENT ON COLUMN code_chunks.metadata IS 'JSONB: {function_name, class_name, complexity, dependencies, is_exported, parent_class}';
-COMMENT ON COLUMN code_chunks.embedding IS 'Enhanced text format: "FILE: path | TYPE: type | LANG: lang | CODE: content | SYMBOLS: list"';
+COMMENT ON COLUMN code_chunks.embedding IS 'Enhanced text format: "{summary}\n\n{code}\n\nSymbols: {list}" - natural text without labels';
 
 COMMENT ON COLUMN code_files.imports IS 'JSONB format: { "imports": [{ "path": "express", "line": 1, "symbols": ["default"], "type": "external" }] }. Types: "external", "workspace", "relative", "absolute"';
 COMMENT ON COLUMN code_files.exports IS 'Array format: ["exportedFunction", "MyClass", "API_KEY"]';
@@ -287,6 +287,64 @@ CREATE INDEX IF NOT EXISTS idx_api_endpoints_repo_type ON api_endpoints(repo_id,
 -- Multi-repo search with filtering
 -- SELECT r.repo_name, c.file_path FROM code_chunks c JOIN repositories r ON c.repo_id = r.repo_id
 -- WHERE r.repo_id IN ('auth-service', 'user-service') AND 1 - (c.embedding <=> query_embedding) > 0.75;
+
+-- Documentation Chunks (standalone from code indexing)
+-- For manually indexed markdown files (e.g., syntax.md, docs/codes/)
+
+CREATE TABLE IF NOT EXISTS documentation_chunks (
+    id BIGSERIAL PRIMARY KEY,
+    chunk_id TEXT NOT NULL UNIQUE,        -- UUID for chunk identification
+    doc_id TEXT NOT NULL,                  -- Identifier (custom or derived from path)
+    file_path TEXT NOT NULL,               -- Source file path
+    heading_path TEXT[],                   -- Breadcrumb: ["API", "Authentication", "Guards"]
+    chunk_type TEXT NOT NULL,              -- 'section' | 'code_block'
+    content TEXT NOT NULL,
+    language TEXT,                         -- For code blocks: 'typescript', 'sql', etc.
+    embedding vector(1024),                -- Must match EMBEDDING_DIMENSIONS
+    tags TEXT[],                           -- Searchable tags
+    file_hash TEXT NOT NULL,               -- For incremental updates
+    start_line INT,
+    end_line INT,
+    token_count INT,
+    metadata JSONB,                        -- Front matter, code block info, etc.
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT chk_doc_chunk_type CHECK (chunk_type IN ('section', 'code_block'))
+);
+
+-- Documentation files metadata
+CREATE TABLE IF NOT EXISTS documentation_files (
+    id SERIAL PRIMARY KEY,
+    doc_id TEXT NOT NULL,
+    file_path TEXT NOT NULL UNIQUE,
+    file_hash TEXT NOT NULL,
+    title TEXT,                            -- Extracted from first heading or front matter
+    description TEXT,                      -- From front matter or first paragraph
+    tags TEXT[],
+    front_matter JSONB,                    -- YAML front matter
+    table_of_contents JSONB,               -- Heading structure
+    code_block_count INT DEFAULT 0,
+    section_count INT DEFAULT 0,
+    indexed_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for documentation
+CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc_id ON documentation_chunks(doc_id);
+CREATE INDEX IF NOT EXISTS idx_doc_chunks_file ON documentation_chunks(file_path);
+CREATE INDEX IF NOT EXISTS idx_doc_chunks_type ON documentation_chunks(chunk_type);
+CREATE INDEX IF NOT EXISTS idx_doc_chunks_tags ON documentation_chunks USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_doc_chunks_language ON documentation_chunks(language) WHERE language IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_doc_chunks_vector ON documentation_chunks USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS idx_doc_files_doc_id ON documentation_files(doc_id);
+CREATE INDEX IF NOT EXISTS idx_doc_files_tags ON documentation_files USING GIN (tags);
+
+COMMENT ON TABLE documentation_chunks IS 'Standalone documentation storage for manually indexed markdown files. Separate from code_chunks to allow independent management.';
+COMMENT ON COLUMN documentation_chunks.doc_id IS 'Custom identifier or derived from file path (e.g., "syntax", "nestjs-docs", "mcp-sdk")';
+COMMENT ON COLUMN documentation_chunks.heading_path IS 'Breadcrumb array for section context: ["Getting Started", "Installation", "npm"]';
+COMMENT ON COLUMN documentation_chunks.chunk_type IS 'section: prose content under a heading, code_block: fenced code block with language';
+COMMENT ON COLUMN documentation_chunks.tags IS 'User-provided tags for filtering: ["mcp", "sdk", "context7"]';
 
 -- Migration Notes
 -- All ALTER TABLE use IF NOT EXISTS (backward compatible, nullable columns)

@@ -1,20 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * cindex - RAG MCP Server for Code Context
+ * cindex - MCP Server for semantic code search and context retrieval.
  *
- * Entry point for the Model Context Protocol (MCP) server that provides semantic code search
- * and context retrieval for large codebases. Supports single repositories, monorepos, and
- * multi-project setups with up to 1M+ lines of code.
+ * Features:
+ * - 17 MCP tools for search, indexing, context retrieval, and documentation
+ * - PostgreSQL + pgvector for vector similarity search
+ * - Ollama for embeddings (bge-m3) and summaries (qwen2.5-coder)
+ * - Supports 1M+ LoC with 9-stage retrieval pipeline
  *
- * Architecture:
- * - Initializes database (PostgreSQL + pgvector), Ollama client, and MCP server
- * - Registers 13 MCP tools for code search, indexing, and context retrieval
- * - Manages lifecycle (startup health checks, graceful shutdown)
- * - Communicates via stdio transport for Claude Code integration
- *
- * @see {@link https://github.com/gianged/cindex} Project repository
- * @see {@link docs/overview.md} Complete technical specification
+ * @see https://github.com/gianged/cindex
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -32,6 +27,7 @@ import { FileSummaryGenerator } from '@indexing/summary';
 import { SymbolExtractor } from '@indexing/symbols';
 import { toMcpSchema } from '@mcp/schema-adapter';
 import {
+  DeleteDocumentationSchema,
   DeleteRepositorySchema,
   FindCrossServiceCallsSchema,
   FindCrossWorkspaceUsagesSchema,
@@ -39,14 +35,18 @@ import {
   GetFileContextSchema,
   GetServiceContextSchema,
   GetWorkspaceContextSchema,
+  IndexDocumentationSchema,
   IndexRepositorySchema,
+  ListDocumentationSchema,
   ListIndexedReposSchema,
   ListServicesSchema,
   ListWorkspacesSchema,
   SearchAPIContractsSchema,
   SearchCodebaseSchema,
+  SearchDocumentationSchema,
 } from '@mcp/schemas';
 import {
+  deleteDocumentationMCP,
   deleteRepositoryMCP,
   findCrossServiceCallsMCP,
   findCrossWorkspaceUsagesMCP,
@@ -54,12 +54,15 @@ import {
   getFileContextMCP,
   getServiceContextMCP,
   getWorkspaceContextMCP,
+  indexDocumentationMCP,
   indexRepositoryMCP,
+  listDocumentationMCP,
   listIndexedReposMCP,
   listServicesMCP,
   listWorkspacesMCP,
   searchAPIContractsMCP,
   searchCodebaseMCP,
+  searchDocumentationMCP,
 } from '@mcp/tools-mcp';
 import { CindexError } from '@utils/errors';
 import { initLogger, logger } from '@utils/logger';
@@ -67,208 +70,190 @@ import { createOllamaClient } from '@utils/ollama';
 import { ProgressTracker } from '@utils/progress';
 import { type IndexingOptions } from '@/types/indexing';
 
-// Derive TypeScript types from Zod schemas for compile-time type safety
+// Tool input types (grouped: Search → Context → Index → List → Cross-Ref → Delete)
 type SearchCodebaseInput = z.infer<typeof SearchCodebaseSchema>;
-type GetFileContextInput = z.infer<typeof GetFileContextSchema>;
+type SearchDocumentationInput = z.infer<typeof SearchDocumentationSchema>;
+type SearchAPIContractsInput = z.infer<typeof SearchAPIContractsSchema>;
 type FindSymbolInput = z.infer<typeof FindSymbolSchema>;
+type GetFileContextInput = z.infer<typeof GetFileContextSchema>;
+type GetWorkspaceContextInput = z.infer<typeof GetWorkspaceContextSchema>;
+type GetServiceContextInput = z.infer<typeof GetServiceContextSchema>;
 type IndexRepositoryInput = z.infer<typeof IndexRepositorySchema>;
-type DeleteRepositoryInput = z.infer<typeof DeleteRepositorySchema>;
+type IndexDocumentationInput = z.infer<typeof IndexDocumentationSchema>;
 type ListIndexedReposInput = z.infer<typeof ListIndexedReposSchema>;
 type ListWorkspacesInput = z.infer<typeof ListWorkspacesSchema>;
 type ListServicesInput = z.infer<typeof ListServicesSchema>;
-type GetWorkspaceContextInput = z.infer<typeof GetWorkspaceContextSchema>;
-type GetServiceContextInput = z.infer<typeof GetServiceContextSchema>;
+type ListDocumentationInput = z.infer<typeof ListDocumentationSchema>;
 type FindCrossWorkspaceUsagesInput = z.infer<typeof FindCrossWorkspaceUsagesSchema>;
 type FindCrossServiceCallsInput = z.infer<typeof FindCrossServiceCallsSchema>;
-type SearchAPIContractsInput = z.infer<typeof SearchAPIContractsSchema>;
+type DeleteRepositoryInput = z.infer<typeof DeleteRepositorySchema>;
+type DeleteDocumentationInput = z.infer<typeof DeleteDocumentationSchema>;
 
-/**
- * Global application state container
- *
- * Holds initialized clients and configuration for the MCP server lifecycle.
- * Set during startup and accessed by tool handlers for database/API operations.
- */
+/** Global application state - initialized during startup */
 interface AppState {
-  /** Loaded and validated environment configuration */
-  config: ReturnType<typeof loadConfig>;
-  /** PostgreSQL client with connection pooling */
-  db: ReturnType<typeof createDatabaseClient>;
-  /** Ollama API client for embeddings and summaries */
-  ollama: ReturnType<typeof createOllamaClient>;
-  /** MCP server instance with registered tools */
-  server: McpServer;
+  config: ReturnType<typeof loadConfig>; // Environment configuration
+  db: ReturnType<typeof createDatabaseClient>; // PostgreSQL connection pool
+  ollama: ReturnType<typeof createOllamaClient>; // Ollama API client
+  server: McpServer; // MCP server instance
 }
 
-/**
- * Global application state, initialized during server startup
- * Null until initializeServer() completes successfully
- */
 let appState: AppState | null = null;
 
 /**
- * Create IndexingOrchestrator for a specific repository
+ * Create IndexingOrchestrator with all pipeline components.
+ * Called on-demand for each index_repository invocation.
  *
- * Factory function that instantiates all required dependencies for the indexing pipeline.
- * Creates fresh instances for each indexing operation to ensure clean state and avoid
- * cross-repository contamination during parallel indexing operations.
- *
- * Called on-demand when index_repository tool is invoked. The orchestrator coordinates
- * the complete indexing workflow: file discovery → parsing → chunking → summarization
- * → embedding generation → symbol extraction → database persistence.
- *
- * @param repoPath - Absolute path to repository root directory
- * @param options - Indexing configuration (repo_id, repo_type, incremental mode, etc.)
- * @returns Fully configured orchestrator instance ready for indexing
- * @throws {Error} If application state is not initialized (server startup failed)
+ * Pipeline: file discovery → parsing → chunking → summarization → embedding → persistence
  */
 const createOrchestrator = (repoPath: string, options: IndexingOptions): IndexingOrchestrator => {
-  if (!appState) {
-    throw new Error('Application not initialized');
-  }
+  if (!appState) throw new Error('Application not initialized');
 
   const { config, db, ollama } = appState;
 
-  // Create pipeline components with appropriate configuration
-  const fileWalker = new FileWalker(repoPath, options);
-  const parser = new CodeParser(); // Language detection happens per-file via tree-sitter
-  const chunker = new CodeChunker();
-  const summaryGenerator = new FileSummaryGenerator(ollama, config.summary);
-  const embeddingGenerator = new EmbeddingGenerator(ollama, config.embedding);
-  const symbolExtractor = new SymbolExtractor(embeddingGenerator);
-  const dbWriter = new DatabaseWriter(db.getPool());
-  const progressTracker = new ProgressTracker();
-
-  // Assemble orchestrator with all pipeline stages
-  // Database client enables incremental indexing via hash comparison
   return new IndexingOrchestrator(
     db,
-    fileWalker,
-    parser,
-    chunker,
-    summaryGenerator,
-    embeddingGenerator,
-    symbolExtractor,
-    dbWriter,
-    progressTracker
+    new FileWalker(repoPath, options),
+    new CodeParser(),
+    new CodeChunker(),
+    new FileSummaryGenerator(ollama, config.summary),
+    new EmbeddingGenerator(ollama, config.embedding),
+    new SymbolExtractor(new EmbeddingGenerator(ollama, config.embedding)),
+    new DatabaseWriter(db.getPool()),
+    new ProgressTracker()
   );
 };
 
 /**
- * Initialize the MCP server and all dependencies
- *
- * Performs complete server startup sequence with health checks for all external dependencies.
- * This function runs synchronously during server startup and blocks until all resources are ready.
+ * Initialize MCP server and all dependencies.
  *
  * Startup sequence:
- * 1. Load and validate environment configuration (POSTGRES_*, OLLAMA_HOST, model names)
- * 2. Initialize logger and display startup banner
- * 3. Create database and Ollama clients
- * 4. Perform health checks (database connection, pgvector extension, Ollama availability)
- * 5. Create MCP server instance
- * 6. Register all 13 MCP tools with input schemas and handlers
- *
- * @returns Initialized application state (config, db, ollama, server)
- * @throws {CindexError} If configuration is invalid or dependencies are unavailable
- * @throws {Error} For unexpected initialization failures
+ * 1. Load and validate environment configuration
+ * 2. Initialize database and Ollama clients
+ * 3. Health checks (database, pgvector, Ollama models)
+ * 4. Register all 17 MCP tools
  */
 const initializeServer = async (): Promise<AppState> => {
-  // Load configuration from environment variables
   logger.info('Loading configuration...');
   const config = loadConfig();
   validateConfig(config);
-
-  // Set log level from config (defaults to INFO)
   initLogger('INFO');
 
-  // Display startup banner with version and model information
-  logger.startup({
-    version: '0.1.0',
-    models: [config.embedding.model, config.summary.model],
-  });
+  logger.startup({ version: '0.1.0', models: [config.embedding.model, config.summary.model] });
 
-  // Initialize external clients (PostgreSQL + pgvector, Ollama)
   logger.info('Initializing clients...');
   const db = createDatabaseClient(config.database);
   const ollama = createOllamaClient(config.ollama);
 
-  // Verify Ollama is running and models are available
   logger.info('Checking Ollama connection...');
   await ollama.healthCheck(config.embedding.model, config.summary.model);
 
-  // Establish database connection pool
   logger.info('Connecting to database...');
   await db.connect();
 
-  // Verify pgvector extension and schema tables exist with correct vector dimensions
   logger.info('Verifying database schema...');
   await db.healthCheck(config.embedding.dimensions);
 
-  // Create MCP server instance with metadata
-  const server = new McpServer(
-    {
-      name: 'cindex',
-      version: '0.1.0',
-    },
-    {
-      capabilities: {
-        tools: {}, // Tool list generated dynamically from registered tools
-      },
-    }
-  );
+  const server = new McpServer({ name: 'cindex', version: '0.1.0' }, { capabilities: { tools: {} } });
 
-  // Register all MCP tools with Zod schemas for input validation
+  // Register all 17 MCP tools grouped by function:
+  // Search (4) → Context (3) → Index (2) → List (4) → Cross-Ref (2) → Delete (2)
   logger.debug('Registering MCP tools...');
 
-  // Core MCP Tools (4): Search, context retrieval, symbol lookup, indexing
+  // ===================
+  // Search Tools (4)
+  // ===================
 
-  // 1. search_codebase - Semantic code search with 9-stage retrieval pipeline
+  // 1. search_codebase - Primary code search with 9-stage retrieval
   server.registerTool(
     'search_codebase',
     {
-      description: 'Search codebase with semantic understanding, multi-stage retrieval, and dependency analysis',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
+      description:
+        'MUST BE USED for all code search, discovery, and understanding tasks. Provides semantic search with multi-stage retrieval and dependency analysis. If results are empty, use list_indexed_repos to check if repository is indexed, then suggest index_repository if needed.',
       inputSchema: toMcpSchema(SearchCodebaseSchema),
     },
     async (params: SearchCodebaseInput) => searchCodebaseMCP(db.getPool(), config, ollama, params)
   );
 
-  // 2. get_file_context - Get full file context with dependencies
+  // 2. search_documentation - Search markdown docs (syntax.md, Context7 docs)
   server.registerTool(
-    'get_file_context',
+    'search_documentation',
     {
-      description: 'Get complete context for a file including callers, callees, and import chain',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
-      inputSchema: toMcpSchema(GetFileContextSchema),
+      description:
+        'Search indexed documentation using semantic similarity. Returns ranked results with section context and code blocks. Use after search_codebase for reference documentation.',
+      inputSchema: toMcpSchema(SearchDocumentationSchema),
     },
-    async (params: GetFileContextInput) => getFileContextMCP(db.getPool(), params)
+    async (params: SearchDocumentationInput) => searchDocumentationMCP(db.getPool(), ollama, config, params)
   );
 
-  // 3. find_symbol_definition - Locate symbol definitions and usages
+  // 3. search_api_contracts - Search REST/GraphQL/gRPC endpoints
+  server.registerTool(
+    'search_api_contracts',
+    {
+      description: 'Search API endpoints across services with semantic understanding',
+      inputSchema: toMcpSchema(SearchAPIContractsSchema),
+    },
+    async (params: SearchAPIContractsInput) => searchAPIContractsMCP(db.getPool(), ollama, config, params)
+  );
+
+  // 4. find_symbol_definition - Locate functions/classes/variables
   server.registerTool(
     'find_symbol_definition',
     {
       description: 'Find symbol definitions and optionally show usages across the codebase',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
       inputSchema: toMcpSchema(FindSymbolSchema),
     },
     async (params: FindSymbolInput) => findSymbolMCP(db.getPool(), params)
   );
 
-  // 4. index_repository - Index or re-index a codebase with progress tracking
+  // ===================
+  // Context Tools (3)
+  // ===================
+
+  // 5. get_file_context - File with callers, callees, imports
+  server.registerTool(
+    'get_file_context',
+    {
+      description: 'Get complete context for a file including callers, callees, and import chain',
+      inputSchema: toMcpSchema(GetFileContextSchema),
+    },
+    async (params: GetFileContextInput) => getFileContextMCP(db.getPool(), params)
+  );
+
+  // 6. get_workspace_context - Monorepo package with dependencies
+  server.registerTool(
+    'get_workspace_context',
+    {
+      description: 'Get full context for a workspace including dependencies and dependents',
+      inputSchema: toMcpSchema(GetWorkspaceContextSchema),
+    },
+    async (params: GetWorkspaceContextInput) => getWorkspaceContextMCP(db.getPool(), params)
+  );
+
+  // 7. get_service_context - Microservice with API contracts
+  server.registerTool(
+    'get_service_context',
+    {
+      description: 'Get full context for a service including API contracts and dependencies',
+      inputSchema: toMcpSchema(GetServiceContextSchema),
+    },
+    async (params: GetServiceContextInput) => getServiceContextMCP(db.getPool(), params)
+  );
+
+  // ===================
+  // Indexing Tools (2)
+  // ===================
+
+  // 8. index_repository - Index codebase with progress tracking
   server.registerTool(
     'index_repository',
     {
-      description: 'Index or re-index a repository with progress notifications and multi-project support',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
+      description:
+        'Index or re-index a repository with progress notifications and multi-project support. Use list_indexed_repos to check last_indexed timestamp - suggest re-indexing if outdated (>7 days) or after significant code changes. Ask user before re-indexing existing repositories.',
       inputSchema: toMcpSchema(IndexRepositorySchema),
     },
     async (params: IndexRepositoryInput) => {
-      // Create fresh orchestrator instance for this indexing operation
-      // Type assertion is safe: FileWalker only uses specific properties from IndexingOptions
       const orchestrator = createOrchestrator(params.repo_path, params as unknown as IndexingOptions);
 
-      // Progress callback sends real-time updates to MCP client via logging messages
-      // Enables Claude Code to display indexing progress in UI
       const progressCallback = (progress: {
         stage: string;
         current: number;
@@ -276,7 +261,6 @@ const initializeServer = async (): Promise<AppState> => {
         message: string;
         eta_seconds?: number;
       }) => {
-        // Format progress as structured MCP logging message
         server
           .sendLoggingMessage({
             level: 'info',
@@ -293,7 +277,6 @@ const initializeServer = async (): Promise<AppState> => {
             },
           })
           .catch((err: unknown) => {
-            // Log notification failures but don't interrupt indexing
             logger.error('Failed to send progress notification', { error: err });
           });
       };
@@ -302,198 +285,155 @@ const initializeServer = async (): Promise<AppState> => {
     }
   );
 
-  // Multi-Project Management Tools (9): Repository listing, workspace/service queries, cross-reference tracking
-
-  // 5. delete_repository - Remove indexed repository data
+  // 9. index_documentation - Index markdown files (standalone)
   server.registerTool(
-    'delete_repository',
+    'index_documentation',
     {
-      description: 'Delete one or more indexed repositories and all associated data',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
-      inputSchema: toMcpSchema(DeleteRepositorySchema),
+      description:
+        'Index markdown files for documentation search. Standalone from code indexing. Use for syntax.md, Context7-fetched docs, or any reference documentation.',
+      inputSchema: toMcpSchema(IndexDocumentationSchema),
     },
-    async (params: DeleteRepositoryInput) => deleteRepositoryMCP(db.getPool(), params)
+    async (params: IndexDocumentationInput) => indexDocumentationMCP(db.getPool(), ollama, config, params)
   );
 
-  // 6. list_indexed_repos - List all indexed repositories
+  // ===================
+  // List/Discovery Tools (4)
+  // ===================
+
+  // 10. list_indexed_repos - All indexed repositories
   server.registerTool(
     'list_indexed_repos',
     {
       description: 'List all indexed repositories with optional metadata, workspace counts, and service counts',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
       inputSchema: toMcpSchema(ListIndexedReposSchema),
     },
     async (params: ListIndexedReposInput) => listIndexedReposMCP(db.getPool(), params)
   );
 
-  // 7. list_workspaces - List workspaces in monorepo
+  // 11. list_workspaces - Monorepo workspaces/packages
   server.registerTool(
     'list_workspaces',
     {
       description: 'List all workspaces in indexed repositories for monorepo support',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
       inputSchema: toMcpSchema(ListWorkspacesSchema),
     },
     async (params: ListWorkspacesInput) => listWorkspacesMCP(db.getPool(), params)
   );
 
-  // 8. list_services - List services across repositories
+  // 12. list_services - Microservices across repos
   server.registerTool(
     'list_services',
     {
       description: 'List all services across indexed repositories for microservice support',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
       inputSchema: toMcpSchema(ListServicesSchema),
     },
     async (params: ListServicesInput) => listServicesMCP(db.getPool(), params)
   );
 
-  // 9. get_workspace_context - Get workspace context with dependencies
+  // 13. list_documentation - Indexed markdown docs
   server.registerTool(
-    'get_workspace_context',
+    'list_documentation',
     {
-      description: 'Get full context for a workspace including dependencies and dependents',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
-      inputSchema: toMcpSchema(GetWorkspaceContextSchema),
+      description: 'List all indexed documentation with optional filtering by doc_id or tags.',
+      inputSchema: toMcpSchema(ListDocumentationSchema),
     },
-    async (params: GetWorkspaceContextInput) => getWorkspaceContextMCP(db.getPool(), params)
+    async (params: ListDocumentationInput) => listDocumentationMCP(db.getPool(), params)
   );
 
-  // 10. get_service_context - Get service context with API contracts
-  server.registerTool(
-    'get_service_context',
-    {
-      description: 'Get full context for a service including API contracts and dependencies',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
-      inputSchema: toMcpSchema(GetServiceContextSchema),
-    },
-    async (params: GetServiceContextInput) => getServiceContextMCP(db.getPool(), params)
-  );
+  // ===================
+  // Cross-Reference Tools (2)
+  // ===================
 
-  // 11. find_cross_workspace_usages - Track workspace package usages
+  // 14. find_cross_workspace_usages - Track package imports across monorepo
   server.registerTool(
     'find_cross_workspace_usages',
     {
       description: 'Find workspace package usages across the monorepo',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
       inputSchema: toMcpSchema(FindCrossWorkspaceUsagesSchema),
     },
     async (params: FindCrossWorkspaceUsagesInput) => findCrossWorkspaceUsagesMCP(db.getPool(), params)
   );
 
-  // 12. find_cross_service_calls - Identify inter-service API calls
+  // 15. find_cross_service_calls - Track inter-service API calls
   server.registerTool(
     'find_cross_service_calls',
     {
       description: 'Find inter-service API calls across microservices',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
       inputSchema: toMcpSchema(FindCrossServiceCallsSchema),
     },
     async (params: FindCrossServiceCallsInput) => findCrossServiceCallsMCP(db.getPool(), params)
   );
 
-  // 13. search_api_contracts - Search API endpoints with semantic search
+  // ===================
+  // Delete Tools (2)
+  // ===================
+
+  // 16. delete_repository - Remove repo and all data (destructive)
   server.registerTool(
-    'search_api_contracts',
+    'delete_repository',
     {
-      description: 'Search API endpoints across services with semantic understanding',
-      // @ts-expect-error - MCP SDK v1.22.0 type definitions incompatible with Zod v4.1 (works at runtime)
-      inputSchema: toMcpSchema(SearchAPIContractsSchema),
+      description:
+        'Delete one or more indexed repositories and all associated data. IMPORTANT: ALWAYS ask user for explicit confirmation before executing - this is destructive and cannot be undone.',
+      inputSchema: toMcpSchema(DeleteRepositorySchema),
     },
-    async (params: SearchAPIContractsInput) => searchAPIContractsMCP(db.getPool(), ollama, config, params)
+    async (params: DeleteRepositoryInput) => deleteRepositoryMCP(db.getPool(), params)
+  );
+
+  // 17. delete_documentation - Remove indexed docs (destructive)
+  server.registerTool(
+    'delete_documentation',
+    {
+      description: 'Delete indexed documentation by doc_id. IMPORTANT: Ask user for confirmation before executing.',
+      inputSchema: toMcpSchema(DeleteDocumentationSchema),
+    },
+    async (params: DeleteDocumentationInput) => deleteDocumentationMCP(db.getPool(), params)
   );
 
   logger.info('MCP server initialized successfully');
-
   return { config, db, ollama, server };
 };
 
-/**
- * Graceful shutdown handler for SIGINT and SIGTERM signals
- *
- * Ensures clean resource cleanup when server is terminated:
- * - Closes database connection pool (releases all connections)
- * - Flushes logger buffers
- * - Exits process with success code
- *
- * Registered in main() to handle Ctrl+C (SIGINT) and kill (SIGTERM) signals.
- *
- * @param signal - Signal name that triggered shutdown (SIGINT, SIGTERM)
- */
+/** Graceful shutdown handler - closes database connections and flushes logs */
 const shutdown = async (signal: string): Promise<void> => {
   logger.info(`Received ${signal}, shutting down...`);
 
   if (appState) {
     try {
-      // Close database connection pool and release all connections
       await appState.db.close();
       logger.info('Database connection closed');
     } catch (error) {
-      // Log but don't block shutdown on cleanup errors
       logger.errorWithStack('Error closing database', error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  // Flush logger and close file handles
   logger.shutdown();
   process.exit(0);
 };
 
-/**
- * Main entry point and server lifecycle coordinator
- *
- * Orchestrates complete server startup and operation:
- * 1. Initialize server and dependencies (database, Ollama, MCP tools)
- * 2. Register signal handlers for graceful shutdown
- * 3. Connect to stdio transport for MCP communication
- * 4. Enter event loop to handle incoming MCP requests
- *
- * Error handling:
- * - CindexError: User-friendly formatted messages (config errors, missing dependencies)
- * - Other errors: Full stack traces for debugging unexpected failures
- *
- * Exit codes:
- * - 0: Graceful shutdown via signal handler
- * - 1: Initialization failure (exits immediately)
- */
+/** Main entry point - initialize server and connect stdio transport */
 const main = async (): Promise<void> => {
   try {
-    // Initialize server and all dependencies
     appState = await initializeServer();
 
-    // Register signal handlers for clean shutdown
-    // Ctrl+C in terminal → SIGINT
-    process.on('SIGINT', () => {
-      void shutdown('SIGINT');
-    });
-    // kill <pid> → SIGTERM
-    process.on('SIGTERM', () => {
-      void shutdown('SIGTERM');
-    });
+    process.on('SIGINT', () => void shutdown('SIGINT'));
+    process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-    // Connect MCP server to stdio transport (reads stdin, writes stdout)
-    // Claude Code communicates with server via JSON-RPC over stdio
     const transport = new StdioServerTransport();
     await appState.server.connect(transport);
 
     logger.info('cindex MCP server is ready');
     logger.info('Waiting for requests...');
   } catch (error) {
-    // Handle initialization errors with appropriate formatting
     if (error instanceof CindexError) {
-      // User-friendly error message with resolution hints
       console.error('\n' + error.getFormattedMessage());
     } else {
-      // Unexpected error - show full stack trace for debugging
       logger.errorWithStack(
         'Unexpected error during initialization',
         error instanceof Error ? error : new Error(String(error))
       );
     }
-
     process.exit(1);
   }
 };
 
-// Start the server - entry point execution
 void main();
