@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/gianged/cindex/compare/v1.0.0...v1.1.0) (2025-11-23)
+
+
+### Features
+
+* Implement hybrid search capabilities for improved retrieval accuracy ([13f5469](https://github.com/gianged/cindex/commit/13f5469a1ee8be403dd4d224e9d0f537504b8e3a))
+
 ## 1.0.0 (2025-11-22)
 
 
