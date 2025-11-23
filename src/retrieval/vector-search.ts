@@ -4,6 +4,7 @@
  */
 import { type Pool, type QueryResult } from 'pg';
 
+import { logger } from '@utils/logger';
 import {
   type CodeChunk,
   type CodeFile,
@@ -11,7 +12,6 @@ import {
   type RepositoryType,
   type RepoTypeQueryResult,
 } from '@/types/database';
-import { logger } from '@utils/logger';
 
 /**
  * Search scope options
@@ -26,10 +26,6 @@ export interface SearchFilter {
   repo_id?: string; // Required for 'repository' scope
   service_id?: string; // Required for 'service' scope
   workspace_id?: string; // Optional workspace filter
-
-  // Reference filtering options
-  include_references?: boolean; // Include reference repos (default: false)
-  include_documentation?: boolean; // Include documentation repos (default: false)
   exclude_repo_types?: RepositoryType[]; // Explicitly exclude repo types
 
   // Dependency expansion (for boundary-aware scope)
@@ -175,21 +171,13 @@ const determineSearchScope = async (db: Pool, filter: SearchFilter): Promise<str
     repo_id: repoId,
     service_id: serviceId,
     workspace_id: _workspaceId,
-    include_references: includeReferences = false,
-    include_documentation: includeDocumentation = false,
     exclude_repo_types: excludeRepoTypes = [],
   } = filter;
 
   // Build exclusion list based on repo types
-  const excludedTypes: RepositoryType[] = [...excludeRepoTypes];
-
-  // Exclude references and documentation by default unless explicitly included
-  if (!includeReferences) {
-    excludedTypes.push('reference');
-  }
-  if (!includeDocumentation) {
-    excludedTypes.push('documentation');
-  }
+  // Always exclude reference and documentation repos from search_codebase
+  // Use search_references tool for searching reference materials
+  const excludedTypes: RepositoryType[] = [...excludeRepoTypes, 'reference', 'documentation'];
 
   // Handle different scopes
   switch (scope) {

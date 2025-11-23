@@ -30,10 +30,6 @@ import { z } from 'zod';
  * @property repo_filter - Filter by repository ID(s)
  * @property exclude_repos - Exclude specific repositories
  * @property cross_repo - Include cross-repository dependencies
- * @property include_references - Include reference framework/library code
- * @property include_documentation - Include markdown documentation
- * @property max_reference_results - Maximum reference results (1-50, default: 5)
- * @property max_documentation_results - Maximum documentation results (1-50, default: 3)
  * @property exclude_repo_types - Exclude specific repository types
  * @property workspace_scope - Workspace scope configuration (strict/inclusive/unrestricted)
  * @property service_scope - Service scope configuration (strict/inclusive/unrestricted)
@@ -59,12 +55,6 @@ export const SearchCodebaseSchema = z.object({
   repo_filter: z.union([z.string(), z.array(z.string())]).optional(),
   exclude_repos: z.array(z.string()).optional(),
   cross_repo: z.boolean().optional(),
-
-  // Reference repository options
-  include_references: z.boolean().optional(),
-  include_documentation: z.boolean().optional(),
-  max_reference_results: z.number().int().min(1).max(50).optional(),
-  max_documentation_results: z.number().int().min(1).max(50).optional(),
   exclude_repo_types: z.array(z.string()).optional(),
 
   // Workspace/Service scope configuration
@@ -443,22 +433,26 @@ export const IndexDocumentationSchema = z.object({
 });
 
 /**
- * Zod schema for search_documentation MCP tool
+ * Zod schema for search_references MCP tool
  *
- * Search indexed documentation using semantic similarity.
- * Returns ranked results with section context and code blocks.
+ * Search reference materials including markdown documentation and reference repository code.
+ * Combines documentation chunks and code from reference repos (frameworks, libraries).
  *
  * @property query - Search query (minimum 2 characters)
- * @property tags - Filter by tags
+ * @property tags - Filter by tags (for documentation)
  * @property doc_ids - Filter by documentation IDs
+ * @property include_docs - Include markdown documentation (default: true)
+ * @property include_code - Include reference repository code (default: true)
  * @property max_results - Maximum results to return (1-50, default: 10)
- * @property include_code_blocks - Include code blocks in results (default: true)
+ * @property include_code_blocks - Include code blocks from markdown docs (default: true)
  * @property similarity_threshold - Minimum similarity score (0-1, default: 0.65)
  */
-export const SearchDocumentationSchema = z.object({
+export const SearchReferencesSchema = z.object({
   query: z.string().min(2, 'Query must be at least 2 characters'),
   tags: z.array(z.string()).optional(),
   doc_ids: z.array(z.string()).optional(),
+  include_docs: z.boolean().optional(),
+  include_code: z.boolean().optional(),
   max_results: z.number().int().min(1).max(50).optional(),
   include_code_blocks: z.boolean().optional(),
   similarity_threshold: z.number().min(0).max(1).optional(),

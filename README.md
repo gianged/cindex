@@ -267,13 +267,13 @@ All configuration is done through environment variables in your MCP config file.
 
 ### Feature Flags
 
-| Variable                        | Default | Range      | Description                                |
-| ------------------------------- | ------- | ---------- | ------------------------------------------ |
-| `ENABLE_WORKSPACE_DETECTION`    | `true`  | true/false | Detect monorepo workspaces                 |
-| `ENABLE_SERVICE_DETECTION`      | `true`  | true/false | Detect microservices                       |
-| `ENABLE_MULTI_REPO`             | `false` | true/false | Enable multi-repository support            |
-| `ENABLE_API_ENDPOINT_DETECTION` | `true`  | true/false | Parse API contracts (REST/GraphQL/gRPC)    |
-| `ENABLE_HYBRID_SEARCH`          | `true`  | true/false | Combine vector + full-text search          |
+| Variable                        | Default | Range      | Description                             |
+| ------------------------------- | ------- | ---------- | --------------------------------------- |
+| `ENABLE_WORKSPACE_DETECTION`    | `true`  | true/false | Detect monorepo workspaces              |
+| `ENABLE_SERVICE_DETECTION`      | `true`  | true/false | Detect microservices                    |
+| `ENABLE_MULTI_REPO`             | `false` | true/false | Enable multi-repository support         |
+| `ENABLE_API_ENDPOINT_DETECTION` | `true`  | true/false | Parse API contracts (REST/GraphQL/gRPC) |
+| `ENABLE_HYBRID_SEARCH`          | `true`  | true/false | Combine vector + full-text search       |
 
 ## Example Configurations
 
@@ -461,8 +461,6 @@ Semantic code search with multi-stage retrieval and dependency analysis.
 - `max_results` - Maximum results (1-100, default: 20)
 - `similarity_threshold` - Minimum similarity (0.0-1.0, default: 0.75)
 - `include_dependencies` - Include imported dependencies (default: false)
-- `include_references` - Include reference repositories (frameworks/libraries, default: false)
-- `include_documentation` - Include markdown documentation (default: false)
 
 **Returns:** Markdown-formatted results with file paths, line numbers, code snippets, and relevance
 scores.
@@ -652,10 +650,10 @@ Search API endpoints across services with semantic understanding.
 **Returns:** API endpoints with paths, HTTP methods, service names, implementation files, and
 similarity scores.
 
-### Documentation Tools
+### Reference & Documentation Tools
 
-Standalone tools for indexing and searching markdown documentation (syntax references,
-Context7-fetched docs, etc.). Separate from code indexing.
+Tools for searching reference materials including markdown documentation (syntax references,
+Context7-fetched docs) AND reference repository code (indexed frameworks/libraries).
 
 #### `index_documentation`
 
@@ -677,23 +675,29 @@ and timing.
 1. Fetch documentation (e.g., from Context7)
 2. Save to markdown file
 3. Index with `index_documentation`
-4. Search with `search_documentation`
+4. Search with `search_references`
 
-#### `search_documentation`
+#### `search_references`
 
-Semantic search for indexed documentation using vector similarity.
+Search reference materials including markdown documentation AND reference repository code. Combines
+both sources for comprehensive reference search.
 
 **Parameters:**
 
 - `query` (required) - Natural language search query
 - `doc_ids` - Filter by document IDs (optional)
-- `tags` - Filter by tags (optional)
-- `max_results` - Maximum results (1-50, default: 10)
-- `include_code_blocks` - Include code block results (default: true)
+- `tags` - Filter by documentation tags (optional)
+- `include_docs` - Include markdown documentation results (default: true)
+- `include_code` - Include reference repository code results (default: true)
+- `max_results` - Maximum results per source (1-50, default: 10)
+- `include_code_blocks` - Include code blocks from documentation (default: true)
 - `similarity_threshold` - Minimum similarity (0.0-1.0, default: 0.65)
 
-**Returns:** Ranked results with heading breadcrumbs, content snippets, code blocks, and relevance
-scores.
+**Returns:** Combined results from both documentation chunks and reference repository code, with
+heading breadcrumbs, content snippets, code blocks, file paths, and relevance scores.
+
+**Note:** Reference repositories are indexed using `index_repository` with `repo_type: 'reference'`.
+They are excluded from `search_codebase` by default and only searchable via `search_references`.
 
 #### `list_documentation`
 

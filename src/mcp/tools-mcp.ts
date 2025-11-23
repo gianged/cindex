@@ -25,7 +25,7 @@ import { listServicesTool, type ListServicesInput } from '@mcp/list-services';
 import { listWorkspacesTool, type ListWorkspacesInput } from '@mcp/list-workspaces';
 import { searchAPIContractsTool, type SearchAPIContractsInput } from '@mcp/search-api-contracts';
 import { searchCodebaseTool, type SearchCodebaseInput } from '@mcp/search-codebase';
-import { deleteDocumentationTool, listDocumentationTool, searchDocumentationTool } from '@mcp/search-documentation';
+import { deleteDocumentationTool, listDocumentationTool, searchReferencesTool } from '@mcp/search-documentation';
 import { logger } from '@utils/logger';
 import { type OllamaClient } from '@utils/ollama';
 import { type CindexConfig } from '@/types/config';
@@ -33,7 +33,7 @@ import {
   type DeleteDocumentationInput,
   type IndexDocumentationInput,
   type ListDocumentationInput,
-  type SearchDocumentationInput,
+  type SearchReferencesInput,
 } from '@/types/documentation';
 
 /**
@@ -492,18 +492,18 @@ export const indexDocumentationMCP = async (
 };
 
 /**
- * search_documentation MCP wrapper
+ * search_references MCP wrapper
  *
- * Search indexed documentation using semantic similarity.
+ * Search reference materials including markdown documentation and reference repository code.
  */
-export const searchDocumentationMCP = async (
+export const searchReferencesMCP = async (
   db: Pool,
   ollama: OllamaClient,
   config: CindexConfig,
-  input: SearchDocumentationInput
+  input: SearchReferencesInput
 ): Promise<MCPToolResult> => {
   try {
-    const result = await searchDocumentationTool(db, ollama, config.embedding, input);
+    const result = await searchReferencesTool(db, ollama, config.embedding, input);
 
     return {
       content: [{ type: 'text', text: result.formatted_result }],
@@ -511,11 +511,12 @@ export const searchDocumentationMCP = async (
         query: result.output.query,
         total_results: result.output.total_results,
         search_time_ms: result.output.search_time_ms,
-        results: result.output.results,
+        doc_results: result.output.doc_results,
+        code_results: result.output.code_results,
       },
     };
   } catch (error) {
-    logger.error('search_documentation tool failed', { error });
+    logger.error('search_references tool failed', { error });
     throw error;
   }
 };

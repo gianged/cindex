@@ -11,9 +11,32 @@ import { type OllamaClient } from '@utils/ollama';
 import {
   type DocChunkType,
   type DocumentationSearchResult,
-  type SearchDocumentationInput,
-  type SearchDocumentationOutput,
+  type ReferenceCodeResult,
+  type SearchReferencesInput,
+  type SearchReferencesOutput,
 } from '@/types/documentation';
+
+/**
+ * Internal search documentation input (for legacy searchDocumentation function)
+ */
+interface SearchDocumentationInput {
+  query: string;
+  tags?: string[];
+  doc_ids?: string[];
+  max_results?: number;
+  include_code_blocks?: boolean;
+  similarity_threshold?: number;
+}
+
+/**
+ * Internal search documentation output
+ */
+interface SearchDocumentationOutput {
+  query: string;
+  results: DocumentationSearchResult[];
+  total_results: number;
+  search_time_ms: number;
+}
 
 /**
  * Default similarity threshold for documentation search
@@ -180,68 +203,279 @@ export const searchDocumentation = async (
 };
 
 /**
- * Format search_documentation output for MCP
+ * Database row type for reference code chunk search results
  */
-export const formatSearchDocumentationOutput = (output: SearchDocumentationOutput): string => {
+interface ReferenceCodeRow {
+  chunk_id: string;
+  repo_id: string;
+  repo_name: string | null;
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  content: string;
+  language: string;
+  chunk_type: string;
+  symbol_name: string | null;
+  relevance_score: string;
+}
+
+/**
+ * Search references (documentation + reference repo code)
+ *
+ * @param pool - Database connection pool
+ * @param ollamaClient - Ollama client for query embedding
+ * @param embeddingConfig - Embedding configuration
+ * @param input - Search parameters
+ * @returns Combined search results from docs and reference repos
+ */
+export const searchReferences = async (
+  pool: pg.Pool,
+  ollamaClient: OllamaClient,
+  embeddingConfig: { model: string; dimensions: number; context_window?: number },
+  input: SearchReferencesInput
+): Promise<SearchReferencesOutput> => {
+  const startTime = Date.now();
+
+  // Validate input
+  if (!input.query || input.query.trim().length === 0) {
+    throw new Error('query is required');
+  }
+
+  const maxResults = input.max_results ?? DEFAULT_MAX_RESULTS;
+  const similarityThreshold = input.similarity_threshold ?? DEFAULT_SIMILARITY_THRESHOLD;
+  const includeDocs = input.include_docs ?? true;
+  const includeCode = input.include_code ?? true;
+  const includeCodeBlocks = input.include_code_blocks ?? true;
+
+  logger.debug('Searching references', {
+    query: input.query,
+    include_docs: includeDocs,
+    include_code: includeCode,
+    max_results: maxResults,
+  });
+
+  // Generate query embedding
+  const queryEmbedding = await ollamaClient.generateEmbedding(
+    embeddingConfig.model,
+    input.query,
+    embeddingConfig.dimensions,
+    embeddingConfig.context_window ?? DEFAULT_CONTEXT_WINDOW
+  );
+
+  const docResults: DocumentationSearchResult[] = [];
+  const codeResults: ReferenceCodeResult[] = [];
+
+  // Search documentation chunks if enabled
+  if (includeDocs) {
+    const docConditions: string[] = ['embedding IS NOT NULL'];
+    const docParams: unknown[] = [`[${queryEmbedding.join(',')}]`, similarityThreshold];
+    let docParamIndex = 3;
+
+    // Filter by tags
+    if (input.tags && input.tags.length > 0) {
+      docConditions.push(`tags && $${String(docParamIndex)}`);
+      docParams.push(input.tags);
+      docParamIndex++;
+    }
+
+    // Filter by doc_ids
+    if (input.doc_ids && input.doc_ids.length > 0) {
+      docConditions.push(`doc_id = ANY($${String(docParamIndex)})`);
+      docParams.push(input.doc_ids);
+      docParamIndex++;
+    }
+
+    // Filter by chunk type if not including code blocks
+    if (!includeCodeBlocks) {
+      docConditions.push("chunk_type = 'section'");
+    }
+
+    // Add max results parameter
+    docParams.push(Math.ceil(maxResults / 2)); // Split results between docs and code
+
+    const docSql = `
+      SELECT
+        chunk_id,
+        doc_id,
+        file_path,
+        heading_path,
+        chunk_type,
+        content,
+        language,
+        tags,
+        start_line,
+        end_line,
+        1 - (embedding <=> $1) AS relevance_score
+      FROM documentation_chunks
+      WHERE ${docConditions.join(' AND ')}
+        AND 1 - (embedding <=> $1) > $2
+      ORDER BY relevance_score DESC
+      LIMIT $${String(docParamIndex)}
+    `;
+
+    const docResult = await pool.query<DocumentationChunkRow>(docSql, docParams);
+
+    for (const row of docResult.rows) {
+      docResults.push({
+        chunk_id: row.chunk_id,
+        doc_id: row.doc_id,
+        file_path: row.file_path,
+        heading_path: row.heading_path ?? [],
+        chunk_type: row.chunk_type,
+        content: row.content,
+        language: row.language,
+        relevance_score: parseFloat(row.relevance_score),
+        tags: row.tags ?? [],
+        start_line: row.start_line,
+        end_line: row.end_line,
+      });
+    }
+  }
+
+  // Search reference repository code if enabled
+  if (includeCode) {
+    const codeParams: unknown[] = [
+      `[${queryEmbedding.join(',')}]`,
+      similarityThreshold,
+      Math.ceil(maxResults / 2), // Split results between docs and code
+    ];
+
+    const codeSql = `
+      SELECT
+        cc.chunk_id,
+        cc.repo_id,
+        r.repo_name,
+        cc.file_path,
+        cc.start_line,
+        cc.end_line,
+        cc.content,
+        cc.language,
+        cc.chunk_type,
+        cc.symbol_name,
+        1 - (cc.embedding <=> $1) AS relevance_score
+      FROM code_chunks cc
+      JOIN repositories r ON cc.repo_id = r.repo_id
+      WHERE cc.embedding IS NOT NULL
+        AND r.repo_type = 'reference'
+        AND 1 - (cc.embedding <=> $1) > $2
+      ORDER BY relevance_score DESC
+      LIMIT $3
+    `;
+
+    const codeResult = await pool.query<ReferenceCodeRow>(codeSql, codeParams);
+
+    for (const row of codeResult.rows) {
+      codeResults.push({
+        chunk_id: row.chunk_id,
+        repo_id: row.repo_id,
+        repo_name: row.repo_name ?? undefined,
+        file_path: row.file_path,
+        start_line: row.start_line,
+        end_line: row.end_line,
+        content: row.content,
+        language: row.language,
+        relevance_score: parseFloat(row.relevance_score),
+        symbol_name: row.symbol_name ?? undefined,
+        chunk_type: row.chunk_type,
+      });
+    }
+  }
+
+  const searchTimeMs = Date.now() - startTime;
+
+  logger.info('Reference search complete', {
+    query: input.query.slice(0, 50),
+    doc_results: docResults.length,
+    code_results: codeResults.length,
+    search_time_ms: searchTimeMs,
+  });
+
+  return {
+    query: input.query,
+    doc_results: docResults,
+    code_results: codeResults,
+    total_results: docResults.length + codeResults.length,
+    search_time_ms: searchTimeMs,
+  };
+};
+
+/**
+ * Format search_references output for MCP
+ */
+export const formatSearchReferencesOutput = (output: SearchReferencesOutput): string => {
   const lines: string[] = [];
 
-  lines.push(`## Documentation Search Results`);
+  lines.push(`## Reference Search Results`);
   lines.push('');
   lines.push(`Query: "${output.query}"`);
   lines.push(`Found: ${String(output.total_results)} results (${String(output.search_time_ms)}ms)`);
+  lines.push(`- Documentation: ${String(output.doc_results.length)} results`);
+  lines.push(`- Reference Code: ${String(output.code_results.length)} results`);
 
-  if (output.results.length === 0) {
+  if (output.total_results === 0) {
     lines.push('');
-    lines.push('No matching documentation found.');
+    lines.push('No matching references found.');
     return lines.join('\n');
   }
 
-  lines.push('');
-
-  for (let i = 0; i < output.results.length; i++) {
-    const result = output.results[i];
-    const breadcrumb = result.heading_path.join(' > ');
-
-    lines.push(`### ${String(i + 1)}. ${breadcrumb || result.file_path}`);
-    lines.push(`Score: ${(result.relevance_score * 100).toFixed(1)}% | Type: ${result.chunk_type}`);
-
-    if (result.chunk_type === 'code_block' && result.language) {
-      lines.push(`Language: ${result.language}`);
-    }
-
-    lines.push(`File: ${result.file_path}${result.start_line ? `:${String(result.start_line)}` : ''}`);
-
-    if (result.tags.length > 0) {
-      lines.push(`Tags: ${result.tags.join(', ')}`);
-    }
-
+  // Documentation results
+  if (output.doc_results.length > 0) {
+    lines.push('');
+    lines.push('---');
+    lines.push('### Documentation');
     lines.push('');
 
-    // Show content (truncated for code blocks)
-    if (result.chunk_type === 'code_block') {
-      const codeLines = result.content.split('\n');
-      const displayLines = codeLines.slice(0, 15);
-      const truncated = codeLines.length > 15;
+    for (let i = 0; i < output.doc_results.length; i++) {
+      const result = output.doc_results[i];
+      const breadcrumb = result.heading_path.join(' > ');
 
-      lines.push('```' + (result.language ?? ''));
-      lines.push(displayLines.join('\n'));
-      if (truncated) {
-        lines.push(`... (${String(codeLines.length - 15)} more lines)`);
+      lines.push(`#### ${String(i + 1)}. ${breadcrumb || result.file_path}`);
+      lines.push(`Score: ${(result.relevance_score * 100).toFixed(1)}% | Type: ${result.chunk_type}`);
+
+      if (result.chunk_type === 'code_block' && result.language) {
+        lines.push(`Language: ${result.language}`);
       }
+
+      lines.push(`File: ${result.file_path}${result.start_line ? `:${String(result.start_line)}` : ''}`);
+      lines.push('');
+
+      // Show content (truncated)
+      if (result.chunk_type === 'code_block') {
+        const codeLines = result.content.split('\n').slice(0, 15);
+        lines.push('```' + (result.language ?? ''));
+        lines.push(codeLines.join('\n'));
+        lines.push('```');
+      } else {
+        const contentLines = result.content.split('\n').slice(0, 8);
+        lines.push(contentLines.join('\n'));
+      }
+      lines.push('');
+    }
+  }
+
+  // Reference code results
+  if (output.code_results.length > 0) {
+    lines.push('---');
+    lines.push('### Reference Repository Code');
+    lines.push('');
+
+    for (let i = 0; i < output.code_results.length; i++) {
+      const result = output.code_results[i];
+      const title = result.symbol_name ?? result.file_path.split('/').pop() ?? 'Code';
+
+      lines.push(`#### ${String(i + 1)}. ${title}`);
+      lines.push(`Score: ${(result.relevance_score * 100).toFixed(1)}% | Repo: ${result.repo_name ?? result.repo_id}`);
+      lines.push(`File: ${result.file_path}:${String(result.start_line)}-${String(result.end_line)}`);
+      lines.push(`Type: ${result.chunk_type} | Language: ${result.language}`);
+      lines.push('');
+
+      // Show code (truncated)
+      const codeLines = result.content.split('\n').slice(0, 20);
+      lines.push('```' + result.language);
+      lines.push(codeLines.join('\n'));
       lines.push('```');
-    } else {
-      // Section content - truncate if too long
-      const contentLines = result.content.split('\n');
-      const displayLines = contentLines.slice(0, 10);
-      const truncated = contentLines.length > 10;
-
-      lines.push(displayLines.join('\n'));
-      if (truncated) {
-        lines.push(`... (${String(contentLines.length - 10)} more lines)`);
-      }
+      lines.push('');
     }
-
-    lines.push('');
   }
 
   return lines.join('\n');

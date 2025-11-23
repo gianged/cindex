@@ -51,12 +51,6 @@ export interface SearchCodebaseInput {
   repo_filter?: string | string[];
   exclude_repos?: string[];
   cross_repo?: boolean; // Default: false
-
-  // Reference repository options
-  include_references?: boolean; // Default: false
-  include_documentation?: boolean; // Default: false
-  max_reference_results?: number; // Default: 5
-  max_documentation_results?: number; // Default: 3
   exclude_repo_types?: string[];
 
   // Workspace/Service scope configuration
@@ -236,18 +230,6 @@ export const searchCodebaseTool = async (
   const repoFilter = normalizeRepoFilter(input.repo_filter);
   const excludeRepos = validateArray('exclude_repos', input.exclude_repos, false) as string[] | undefined;
   const crossRepo = validateBoolean('cross_repo', input.cross_repo, false);
-
-  // Validate reference repository options
-  const includeReferences = validateBoolean('include_references', input.include_references, false);
-  const includeDocumentation = validateBoolean('include_documentation', input.include_documentation, false);
-  const maxReferenceResults = validateNumberInRange('max_reference_results', input.max_reference_results, 1, 50, false);
-  const maxDocumentationResults = validateNumberInRange(
-    'max_documentation_results',
-    input.max_documentation_results,
-    1,
-    50,
-    false
-  );
   const excludeRepoTypes = validateArray('exclude_repo_types', input.exclude_repo_types, false) as string[] | undefined;
 
   // Validate workspace/service scope configuration
@@ -300,12 +282,6 @@ export const searchCodebaseTool = async (
     exclude_services: excludeServices,
     exclude_repos: excludeRepos,
     cross_repo: crossRepo,
-
-    // Reference repository options
-    include_references: includeReferences,
-    include_documentation: includeDocumentation,
-    max_reference_results: maxReferenceResults,
-    max_documentation_results: maxDocumentationResults,
     exclude_repo_types: excludeRepoTypes as RepositoryType[],
 
     // Workspace/Service scope

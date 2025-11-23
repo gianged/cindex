@@ -39,10 +39,6 @@ export interface ScopeFilterConfig {
   workspace_ids?: string[]; // Include specific workspaces
   package_names?: string[]; // Filter by package.json name field
   exclude_workspaces?: string[]; // Exclude specific workspaces
-
-  // Reference repository filtering
-  include_references?: boolean; // Include reference repos (default: false)
-  include_documentation?: boolean; // Include documentation repos (default: false)
   exclude_repo_types?: string[]; // Exclude specific repo types
 
   // Boundary-aware configuration
@@ -68,8 +64,6 @@ export interface ScopeFilter {
   // Configuration
   mode: ScopeMode;
   cross_repo: boolean;
-  include_references: boolean;
-  include_documentation: boolean;
   exclude_repo_types: string[];
 
   // Boundary configuration
@@ -106,31 +100,13 @@ interface DependencyRow {
  * Get all repositories excluding reference/documentation by default
  *
  * @param db - Database client
- * @param includeReferences - Include reference repos
- * @param includeDocumentation - Include documentation repos
- * @param excludeRepoTypes - Additional repo types to exclude
+ * @param excludeRepoTypes - Additional repo types to exclude (reference and documentation always excluded)
  * @returns Array of repository IDs
  */
-const getAllRepositories = async (
-  db: DatabaseClient,
-  includeReferences: boolean,
-  includeDocumentation: boolean,
-  excludeRepoTypes: string[]
-): Promise<string[]> => {
-  // Build exclusion list
-  const excludeTypes = [...excludeRepoTypes];
-  if (!includeReferences) {
-    excludeTypes.push('reference');
-  }
-  if (!includeDocumentation) {
-    excludeTypes.push('documentation');
-  }
-
-  if (excludeTypes.length === 0) {
-    // No exclusions - get all repos
-    const result = await db.query<RepositoryRow>('SELECT repo_id FROM repositories', []);
-    return result.rows.map((r) => r.repo_id);
-  }
+const getAllRepositories = async (db: DatabaseClient, excludeRepoTypes: string[]): Promise<string[]> => {
+  // Always exclude reference and documentation repos from search_codebase
+  // Use search_references tool to search these
+  const excludeTypes = [...excludeRepoTypes, 'reference', 'documentation'];
 
   // Exclude specific repo types
   const query = `
@@ -271,13 +247,8 @@ export const determineSearchScope = async (config: ScopeFilterConfig, db: Databa
 
   switch (config.mode) {
     case 'global': {
-      // Search all repositories (excluding references/docs by default)
-      repoIds = await getAllRepositories(
-        db,
-        config.include_references ?? false,
-        config.include_documentation ?? false,
-        config.exclude_repo_types ?? []
-      );
+      // Search all repositories (always excluding references/docs - use search_references for those)
+      repoIds = await getAllRepositories(db, config.exclude_repo_types ?? []);
       break;
     }
 
@@ -369,8 +340,6 @@ export const determineSearchScope = async (config: ScopeFilterConfig, db: Databa
     service_types: config.service_types,
     mode: config.mode,
     cross_repo: config.cross_repo ?? false,
-    include_references: config.include_references ?? false,
-    include_documentation: config.include_documentation ?? false,
     exclude_repo_types: config.exclude_repo_types ?? [],
     boundary_config:
       config.mode === 'boundary-aware'
@@ -386,8 +355,6 @@ export const determineSearchScope = async (config: ScopeFilterConfig, db: Databa
     repos: repoIds.length,
     services: serviceIds.length,
     workspaces: workspaceIds.length,
-    includeReferences: scopeFilter.include_references,
-    includeDocumentation: scopeFilter.include_documentation,
     scopeTime,
   });
 

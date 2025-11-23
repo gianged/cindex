@@ -1,16 +1,16 @@
 /**
- * MCP Tool: search_documentation
+ * MCP Tool: search_references
  *
- * Search indexed documentation using semantic similarity.
- * Returns ranked results with section context and code blocks.
+ * Search reference materials including markdown documentation and reference repository code.
+ * Combines documentation chunks and code from reference repos (frameworks, libraries).
  */
 import type pg from 'pg';
 
 import {
   deleteDocumentation,
-  formatSearchDocumentationOutput,
+  formatSearchReferencesOutput,
   listDocumentation,
-  searchDocumentation,
+  searchReferences,
 } from '@retrieval/doc-search';
 import { type OllamaClient } from '@utils/ollama';
 import {
@@ -18,27 +18,28 @@ import {
   type DeleteDocumentationOutput,
   type ListDocumentationInput,
   type ListDocumentationOutput,
-  type SearchDocumentationInput,
-  type SearchDocumentationOutput,
+  type SearchReferencesInput,
+  type SearchReferencesOutput,
 } from '@/types/documentation';
 
 /**
- * Search documentation MCP tool implementation
+ * Search references MCP tool implementation
+ * Searches both markdown documentation and reference repository code
  *
  * @param pool - Database connection pool
  * @param ollamaClient - Ollama client for embeddings
  * @param embeddingConfig - Embedding configuration
  * @param input - Search parameters
- * @returns Search results
+ * @returns Search results from both documentation and reference repos
  */
-export const searchDocumentationTool = async (
+export const searchReferencesTool = async (
   pool: pg.Pool,
   ollamaClient: OllamaClient,
   embeddingConfig: { model: string; dimensions: number; context_window?: number },
-  input: SearchDocumentationInput
-): Promise<{ formatted_result: string; output: SearchDocumentationOutput }> => {
-  const output = await searchDocumentation(pool, ollamaClient, embeddingConfig, input);
-  const formattedResult = formatSearchDocumentationOutput(output);
+  input: SearchReferencesInput
+): Promise<{ formatted_result: string; output: SearchReferencesOutput }> => {
+  const output = await searchReferences(pool, ollamaClient, embeddingConfig, input);
+  const formattedResult = formatSearchReferencesOutput(output);
 
   return { formatted_result: formattedResult, output };
 };

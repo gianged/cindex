@@ -148,8 +148,6 @@ export const searchCodebase = async (
     workspace_ids: options.workspace_filter,
     package_names: options.package_filter,
     exclude_workspaces: options.exclude_workspaces,
-    include_references: options.include_references ?? false,
-    include_documentation: options.include_documentation ?? false,
     exclude_repo_types: options.exclude_repo_types ?? [],
   };
 

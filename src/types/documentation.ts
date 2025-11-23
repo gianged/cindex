@@ -96,25 +96,46 @@ export interface IndexDocumentationError {
 }
 
 /**
- * Input for search_documentation tool
+ * Input for search_references tool
+ * Searches both markdown documentation and reference repository code
  */
-export interface SearchDocumentationInput {
+export interface SearchReferencesInput {
   query: string;
   tags?: string[];
   doc_ids?: string[];
+  include_docs?: boolean; // Include markdown docs (default: true)
+  include_code?: boolean; // Include reference repo code (default: true)
   max_results?: number;
   include_code_blocks?: boolean;
   similarity_threshold?: number;
 }
 
 /**
- * Output for search_documentation tool
+ * Output for search_references tool
  */
-export interface SearchDocumentationOutput {
+export interface SearchReferencesOutput {
   query: string;
-  results: DocumentationSearchResult[];
+  doc_results: DocumentationSearchResult[]; // Markdown documentation results
+  code_results: ReferenceCodeResult[]; // Reference repository code results
   total_results: number;
   search_time_ms: number;
+}
+
+/**
+ * Reference repository code search result
+ */
+export interface ReferenceCodeResult {
+  chunk_id: string;
+  repo_id: string;
+  repo_name?: string;
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  content: string;
+  language: string;
+  relevance_score: number;
+  symbol_name?: string;
+  chunk_type: string;
 }
 
 /**

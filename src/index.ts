@@ -43,7 +43,7 @@ import {
   ListWorkspacesSchema,
   SearchAPIContractsSchema,
   SearchCodebaseSchema,
-  SearchDocumentationSchema,
+  SearchReferencesSchema,
 } from '@mcp/schemas';
 import {
   deleteDocumentationMCP,
@@ -62,7 +62,7 @@ import {
   listWorkspacesMCP,
   searchAPIContractsMCP,
   searchCodebaseMCP,
-  searchDocumentationMCP,
+  searchReferencesMCP,
 } from '@mcp/tools-mcp';
 import { CindexError } from '@utils/errors';
 import { initLogger, logger } from '@utils/logger';
@@ -72,7 +72,7 @@ import { type IndexingOptions } from '@/types/indexing';
 
 // Tool input types (grouped: Search → Context → Index → List → Cross-Ref → Delete)
 type SearchCodebaseInput = z.infer<typeof SearchCodebaseSchema>;
-type SearchDocumentationInput = z.infer<typeof SearchDocumentationSchema>;
+type SearchReferencesInput = z.infer<typeof SearchReferencesSchema>;
 type SearchAPIContractsInput = z.infer<typeof SearchAPIContractsSchema>;
 type FindSymbolInput = z.infer<typeof FindSymbolSchema>;
 type GetFileContextInput = z.infer<typeof GetFileContextSchema>;
@@ -174,15 +174,15 @@ const initializeServer = async (): Promise<AppState> => {
     async (params: SearchCodebaseInput) => searchCodebaseMCP(db.getPool(), config, ollama, params)
   );
 
-  // 2. search_documentation - Search markdown docs (syntax.md, Context7 docs)
+  // 2. search_references - Search markdown docs AND reference repository code
   server.registerTool(
-    'search_documentation',
+    'search_references',
     {
       description:
-        'Search indexed documentation using semantic similarity. Returns ranked results with section context and code blocks. Use for library docs, syntax references, API guides, and any markdown documentation indexed via index_documentation.',
-      inputSchema: toMcpSchema(SearchDocumentationSchema),
+        'Search reference materials including markdown documentation AND reference repository code. Combines documentation (syntax.md, Context7 docs) with actual code from indexed reference repos (frameworks, libraries). Use for learning patterns, checking syntax, and finding implementation examples.',
+      inputSchema: toMcpSchema(SearchReferencesSchema),
     },
-    async (params: SearchDocumentationInput) => searchDocumentationMCP(db.getPool(), ollama, config, params)
+    async (params: SearchReferencesInput) => searchReferencesMCP(db.getPool(), ollama, config, params)
   );
 
   // 3. search_api_contracts - Search REST/GraphQL/gRPC endpoints

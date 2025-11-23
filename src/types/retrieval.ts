@@ -540,22 +540,6 @@ export interface SearchOptions {
   cross_repo?: boolean;
 
   // ============================================================================
-  // Reference repository options (Stage 0)
-  // ============================================================================
-
-  /** Include reference repositories in search (default: false) */
-  include_references?: boolean;
-
-  /** Include documentation repositories in search (default: false) */
-  include_documentation?: boolean;
-
-  /** Maximum reference repository results to include (default: 5) */
-  max_reference_results?: number;
-
-  /** Maximum documentation repository results to include (default: 3) */
-  max_documentation_results?: number;
-
-  // ============================================================================
   // API contract enrichment options (Stage 5)
   // ============================================================================
 
