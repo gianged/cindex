@@ -1,6 +1,6 @@
 {
   "name": "@gianged/cindex",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Semantic code search and context retrieval MCP server for large codebases",
   "keywords": [
     "mcp",

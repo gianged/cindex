@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/gianged/cindex/compare/v1.1.0...v1.2.0) (2025-11-23)
+
+
+### Features
+
+* Refactor search functionality to combine documentation and reference repository code searches ([386cae5](https://github.com/gianged/cindex/commit/386cae5b735b0ccc4660fbceb0614ac0237799d2))
+
 ## [1.1.0](https://github.com/gianged/cindex/compare/v1.0.0...v1.1.0) (2025-11-23)
 
 
