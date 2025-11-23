@@ -8,6 +8,8 @@ for Claude Code. Handles 1M+ lines of code with accuracy-first design.
 ## Features
 
 - **Semantic Search** - Vector embeddings for intelligent code discovery
+- **Hybrid Search** - Combines vector similarity with PostgreSQL full-text search for better natural
+  language query handling
 - **9-Stage Retrieval Pipeline** - Scope filtering → query → files → chunks → symbols → imports →
   APIs → dedup → assembly
 - **Multi-Project Support** - Monorepo, microservices, and reference repository indexing
@@ -243,15 +245,18 @@ All configuration is done through environment variables in your MCP config file.
 
 ### Performance Tuning
 
-| Variable               | Default | Range   | Description                                          |
-| ---------------------- | ------- | ------- | ---------------------------------------------------- |
-| `HNSW_EF_SEARCH`       | `300`   | 10-1000 | HNSW search quality (higher = more accurate, slower) |
-| `HNSW_EF_CONSTRUCTION` | `200`   | 10-1000 | HNSW index quality (higher = better index)           |
-| `SIMILARITY_THRESHOLD` | `0.75`  | 0.0-1.0 | Minimum similarity for retrieval                     |
-| `DEDUP_THRESHOLD`      | `0.92`  | 0.0-1.0 | Similarity threshold for deduplication               |
-| `IMPORT_DEPTH`         | `3`     | 1-10    | Maximum import chain traversal depth                 |
-| `WORKSPACE_DEPTH`      | `2`     | 1-10    | Maximum workspace dependency depth                   |
-| `SERVICE_DEPTH`        | `1`     | 1-10    | Maximum service dependency depth                     |
+| Variable                     | Default | Range   | Description                                          |
+| ---------------------------- | ------- | ------- | ---------------------------------------------------- |
+| `HNSW_EF_SEARCH`             | `300`   | 10-1000 | HNSW search quality (higher = more accurate, slower) |
+| `HNSW_EF_CONSTRUCTION`       | `200`   | 10-1000 | HNSW index quality (higher = better index)           |
+| `SIMILARITY_THRESHOLD`       | `0.3`   | 0.0-1.0 | Minimum similarity for file-level retrieval          |
+| `CHUNK_SIMILARITY_THRESHOLD` | `0.2`   | 0.0-1.0 | Minimum similarity for chunk-level retrieval         |
+| `DEDUP_THRESHOLD`            | `0.92`  | 0.0-1.0 | Similarity threshold for deduplication               |
+| `HYBRID_VECTOR_WEIGHT`       | `0.7`   | 0.0-1.0 | Weight for vector similarity in hybrid search        |
+| `HYBRID_KEYWORD_WEIGHT`      | `0.3`   | 0.0-1.0 | Weight for keyword (BM25) score in hybrid search     |
+| `IMPORT_DEPTH`               | `3`     | 1-10    | Maximum import chain traversal depth                 |
+| `WORKSPACE_DEPTH`            | `2`     | 1-10    | Maximum workspace dependency depth                   |
+| `SERVICE_DEPTH`              | `1`     | 1-10    | Maximum service dependency depth                     |
 
 ### Indexing Configuration
 
@@ -262,12 +267,13 @@ All configuration is done through environment variables in your MCP config file.
 
 ### Feature Flags
 
-| Variable                        | Default | Range      | Description                             |
-| ------------------------------- | ------- | ---------- | --------------------------------------- |
-| `ENABLE_WORKSPACE_DETECTION`    | `true`  | true/false | Detect monorepo workspaces              |
-| `ENABLE_SERVICE_DETECTION`      | `true`  | true/false | Detect microservices                    |
-| `ENABLE_MULTI_REPO`             | `false` | true/false | Enable multi-repository support         |
-| `ENABLE_API_ENDPOINT_DETECTION` | `true`  | true/false | Parse API contracts (REST/GraphQL/gRPC) |
+| Variable                        | Default | Range      | Description                                |
+| ------------------------------- | ------- | ---------- | ------------------------------------------ |
+| `ENABLE_WORKSPACE_DETECTION`    | `true`  | true/false | Detect monorepo workspaces                 |
+| `ENABLE_SERVICE_DETECTION`      | `true`  | true/false | Detect microservices                       |
+| `ENABLE_MULTI_REPO`             | `false` | true/false | Enable multi-repository support            |
+| `ENABLE_API_ENDPOINT_DETECTION` | `true`  | true/false | Parse API contracts (REST/GraphQL/gRPC)    |
+| `ENABLE_HYBRID_SEARCH`          | `true`  | true/false | Combine vector + full-text search          |
 
 ## Example Configurations
 
@@ -315,7 +321,8 @@ All available settings with defaults shown:
         "POSTGRES_PASSWORD": "your_password",
         "HNSW_EF_SEARCH": "300",
         "HNSW_EF_CONSTRUCTION": "200",
-        "SIMILARITY_THRESHOLD": "0.75",
+        "SIMILARITY_THRESHOLD": "0.3",
+        "CHUNK_SIMILARITY_THRESHOLD": "0.2",
         "DEDUP_THRESHOLD": "0.92"
       }
     }
@@ -340,7 +347,8 @@ For faster indexing with lower quality:
         "SUMMARY_CONTEXT_WINDOW": "4096",
         "HNSW_EF_SEARCH": "100",
         "HNSW_EF_CONSTRUCTION": "64",
-        "SIMILARITY_THRESHOLD": "0.70",
+        "SIMILARITY_THRESHOLD": "0.4",
+        "CHUNK_SIMILARITY_THRESHOLD": "0.25",
         "DEDUP_THRESHOLD": "0.95"
       }
     }
@@ -358,14 +366,15 @@ For faster indexing with lower quality:
 
 ### RTX 4060 / 8GB VRAM (Tested Configuration)
 
-| Setting                    | Value              | Notes                              |
-| -------------------------- | ------------------ | ---------------------------------- |
-| `EMBEDDING_MODEL`          | `bge-m3:567m`      | Best accuracy/speed balance        |
-| `SUMMARY_MODEL`            | `qwen2.5-coder:7b` | Good summaries, fits in VRAM       |
-| `EMBEDDING_CONTEXT_WINDOW` | `4096`             | Default, sufficient for most files |
-| `HNSW_EF_SEARCH`           | `300`              | High accuracy retrieval            |
-| `SIMILARITY_THRESHOLD`     | `0.30`             | Optimized for chunk retrieval      |
-| `DEDUP_THRESHOLD`          | `0.92`             | Prevent duplicate results          |
+| Setting                      | Value              | Notes                              |
+| ---------------------------- | ------------------ | ---------------------------------- |
+| `EMBEDDING_MODEL`            | `bge-m3:567m`      | Best accuracy/speed balance        |
+| `SUMMARY_MODEL`              | `qwen2.5-coder:7b` | Good summaries, fits in VRAM       |
+| `EMBEDDING_CONTEXT_WINDOW`   | `4096`             | Default, sufficient for most files |
+| `HNSW_EF_SEARCH`             | `300`              | High accuracy retrieval            |
+| `SIMILARITY_THRESHOLD`       | `0.3`              | File-level retrieval threshold     |
+| `CHUNK_SIMILARITY_THRESHOLD` | `0.2`              | Chunk-level retrieval threshold    |
+| `DEDUP_THRESHOLD`            | `0.92`             | Prevent duplicate results          |
 
 ### Performance Expectations
 
@@ -412,7 +421,8 @@ claude mcp add cindex --scope user --transport stdio \
   --env SUMMARY_MODEL="qwen2.5-coder:1.5b" \
   --env HNSW_EF_SEARCH="100" \
   --env HNSW_EF_CONSTRUCTION="64" \
-  --env SIMILARITY_THRESHOLD="0.70" \
+  --env SIMILARITY_THRESHOLD="0.4" \
+  --env CHUNK_SIMILARITY_THRESHOLD="0.25" \
   --env DEDUP_THRESHOLD="0.95" \
   -- npx -y @gianged/cindex
 ```
@@ -714,9 +724,23 @@ multi-project/monorepo/microservice architecture details.
 
 ## Architecture
 
+### Hybrid Search
+
+Combines vector similarity search with PostgreSQL full-text search (tsvector/ts_rank_cd) for
+improved natural language query handling:
+
+```
+hybrid_score = (0.7 * vector_similarity) + (0.3 * keyword_score)
+```
+
+- **Vector search** - Semantic understanding via embeddings
+- **Keyword search** - Exact term matching via PostgreSQL full-text search
+- Configurable weights via `HYBRID_VECTOR_WEIGHT` and `HYBRID_KEYWORD_WEIGHT`
+- Disable with `ENABLE_HYBRID_SEARCH=false` to use vector-only search
+
 ### Multi-Stage Retrieval
 
-1. **File-Level** - Find relevant files via summary embeddings
+1. **File-Level** - Find relevant files via summary embeddings + full-text search
 2. **Chunk-Level** - Locate specific code chunks (functions/classes)
 3. **Symbol Resolution** - Resolve imported symbols and dependencies
 4. **Import Expansion** - Build dependency graph (max 3 levels)
@@ -729,7 +753,8 @@ multi-project/monorepo/microservice architecture details.
 3. Semantic chunking (functions, classes, blocks)
 4. LLM-based file summaries (configurable model)
 5. Embedding generation (configurable model)
-6. PostgreSQL + pgvector storage
+6. Full-text search vector generation (tsvector)
+7. PostgreSQL + pgvector storage
 
 ## Performance Characteristics
 
@@ -795,7 +820,8 @@ ollama list
 ### Low accuracy results
 
 - Increase `HNSW_EF_SEARCH` to `300-400`
-- Raise `SIMILARITY_THRESHOLD` to `0.75-0.80`
+- Raise `SIMILARITY_THRESHOLD` to `0.4-0.5` for stricter file matching
+- Raise `CHUNK_SIMILARITY_THRESHOLD` to `0.3-0.4` for stricter chunk matching
 - Use better summary model: `qwen2.5-coder:3b` or `7b`
 - Lower `DEDUP_THRESHOLD` to `0.90-0.92`
 

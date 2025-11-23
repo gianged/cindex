@@ -83,9 +83,21 @@ export const searchCodebaseMCP = async (
         query_type: result.raw_result.query_type,
         metadata: result.raw_result.metadata,
         warnings: result.raw_result.warnings,
-        total_tokens: result.raw_result.metadata.total_tokens,
-        files_retrieved: result.raw_result.metadata.files_retrieved,
-        chunks_retrieved: result.raw_result.metadata.chunks_retrieved,
+        // Include actual file paths and chunks for visibility
+        files: result.raw_result.context.relevant_files.map((f) => ({
+          file_path: f.file_path,
+          similarity: f.similarity,
+          language: f.language,
+          summary: f.file_summary,
+        })),
+        chunks: result.raw_result.context.code_locations.map((c) => ({
+          file_path: c.file_path,
+          start_line: c.start_line,
+          end_line: c.end_line,
+          similarity: c.similarity,
+          chunk_type: c.chunk_type,
+          content: c.chunk_content,
+        })),
       },
     };
   } catch (error) {

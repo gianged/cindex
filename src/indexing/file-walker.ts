@@ -184,7 +184,6 @@ const EXCLUDED_DIRECTORIES = new Set([
  * Default indexing options
  */
 const DEFAULT_OPTIONS: IndexingOptions = {
-  include_markdown: false,
   max_file_size: 5000,
   chunk_size_min: 50,
   chunk_size_max: 500,
@@ -375,13 +374,13 @@ export class FileWalker {
     // Detect language
     const language = this.detectLanguage(ext, basename);
 
-    // Handle markdown files
+    // Handle markdown files - skip all except root README.md
+    // Use index_documentation tool for markdown indexing
     if (ext === '.md') {
-      // Always include README.md at root
       const isRootReadme = basename.toLowerCase() === 'readme.md' && path.dirname(relativePath) === '.';
 
-      if (!isRootReadme && !this.options.includeMarkdown) {
-        logger.debug('Skipping markdown file', { path: relativePath });
+      if (!isRootReadme) {
+        logger.debug('Skipping markdown file (use index_documentation for markdown)', { path: relativePath });
         return null;
       }
     }

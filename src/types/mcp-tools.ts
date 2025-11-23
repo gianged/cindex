@@ -107,7 +107,6 @@ export interface IndexRepositoryParams {
   repo_path: string;
   incremental?: boolean; // Default: true
   languages?: string[]; // Filter by language
-  include_markdown?: boolean; // Default: false
   respect_gitignore?: boolean; // Default: true
   max_file_size?: number; // Default: 5000 lines
   summary_method?: 'llm' | 'rule-based'; // Default: 'llm'

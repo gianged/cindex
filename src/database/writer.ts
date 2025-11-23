@@ -75,20 +75,26 @@ export class DatabaseWriter {
       has_embedding: !!file.summary_embedding,
     });
 
+    // Include summary_tsv for hybrid search (tsvector generated from file_summary)
     const sql = `
       INSERT INTO code_files (
-        repo_path, file_path, file_summary, summary_embedding,
+        repo_path, file_path, file_summary, summary_embedding, summary_tsv,
         language, total_lines, imports, exports, file_hash,
         last_modified, repo_id, workspace_id, package_name, service_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      ) VALUES ($1, $2, $3, $4, to_tsvector('english', COALESCE($3, '')), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT (file_path) DO UPDATE SET
         file_summary = EXCLUDED.file_summary,
         summary_embedding = EXCLUDED.summary_embedding,
+        summary_tsv = EXCLUDED.summary_tsv,
         total_lines = EXCLUDED.total_lines,
         imports = EXCLUDED.imports,
         exports = EXCLUDED.exports,
         file_hash = EXCLUDED.file_hash,
         last_modified = EXCLUDED.last_modified,
+        repo_id = EXCLUDED.repo_id,
+        workspace_id = EXCLUDED.workspace_id,
+        package_name = EXCLUDED.package_name,
+        service_id = EXCLUDED.service_id,
         indexed_at = NOW()
     `;
 
@@ -190,15 +196,20 @@ export class DatabaseWriter {
     if (chunks.length === 0) return;
 
     // Build parameterized multi-row INSERT statement for batch efficiency
+    // Include content_tsv for hybrid search (tsvector generated from chunk_content)
     const placeholders: string[] = [];
     const values: unknown[] = [];
 
     let paramIndex = 1;
 
     for (const chunk of chunks) {
-      // Create placeholder for 14 columns per chunk
+      // Track the chunk_content parameter index for tsvector generation
+      const contentParamIndex = paramIndex + 3; // chunk_content is 4th param (0-indexed: +3)
+
+      // Create placeholder for 15 columns per chunk (14 + content_tsv)
+      // content_tsv uses to_tsvector() on the chunk_content parameter
       placeholders.push(
-        `($${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)})`
+        `($${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, $${String(paramIndex++)}, to_tsvector('english', COALESCE($${String(contentParamIndex)}, '')))`
       );
 
       values.push(
@@ -224,7 +235,7 @@ export class DatabaseWriter {
       INSERT INTO code_chunks (
         repo_path, file_path, chunk_type, chunk_content,
         start_line, end_line, language, embedding,
-        token_count, metadata, repo_id, workspace_id, package_name, service_id
+        token_count, metadata, repo_id, workspace_id, package_name, service_id, content_tsv
       ) VALUES ${placeholders.join(', ')}
       ON CONFLICT DO NOTHING
     `;

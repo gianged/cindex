@@ -490,6 +490,64 @@ export const formatCrossServiceCall = (call: CrossServiceCall): string => {
 };
 
 /**
+ * Format Quick Summary section for search results
+ *
+ * Creates a concise summary at the top of search results showing:
+ * - Top 5 files with paths and similarity scores
+ * - Top 5 chunks with file:line-range, similarity, and code preview
+ *
+ * This provides immediate visibility of what was found without scrolling
+ * through verbose detailed sections.
+ *
+ * @param files - Relevant files from Stage 1 retrieval
+ * @param chunks - Relevant chunks from Stage 2 retrieval
+ * @returns Formatted Quick Summary section in Markdown (empty if no results)
+ */
+export const formatQuickSummary = (files: RelevantFile[], chunks: RelevantChunk[]): string => {
+  if (files.length === 0 && chunks.length === 0) {
+    return '';
+  }
+
+  const lines: string[] = [];
+  lines.push('## Quick Summary\n');
+
+  // Top 5 files with similarity and summary preview
+  if (files.length > 0) {
+    lines.push('**Top Files:**');
+    for (const file of files.slice(0, 5)) {
+      const similarity = (file.similarity * 100).toFixed(1);
+      // Truncate summary to 60 chars for compact display
+      const summaryPreview =
+        file.file_summary.length > 60 ? file.file_summary.substring(0, 57) + '...' : file.file_summary;
+      lines.push(`${String(files.indexOf(file) + 1)}. \`${file.file_path}\` (${similarity}%) - ${summaryPreview}`);
+    }
+    if (files.length > 5) {
+      lines.push(`   _... and ${String(files.length - 5)} more files_`);
+    }
+    lines.push('');
+  }
+
+  // Top 5 chunks with file:lines, similarity, and code preview
+  if (chunks.length > 0) {
+    lines.push('**Top Chunks:**');
+    for (const chunk of chunks.slice(0, 5)) {
+      const similarity = (chunk.similarity * 100).toFixed(1);
+      const location = `${chunk.file_path}:${String(chunk.start_line)}-${String(chunk.end_line)}`;
+      // Extract first line of code, truncate to 80 chars for compact display
+      const firstLine = chunk.chunk_content.split('\n')[0]?.trim() ?? '';
+      const codePreview = firstLine.length > 80 ? firstLine.substring(0, 77) + '...' : firstLine;
+      lines.push(`${String(chunks.indexOf(chunk) + 1)}. \`${location}\` (${similarity}%) - \`${codePreview}\``);
+    }
+    if (chunks.length > 5) {
+      lines.push(`   _... and ${String(chunks.length - 5)} more chunks_`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+};
+
+/**
  * Format complete search result output
  *
  * Formats the full search result from the 7-stage retrieval pipeline, including
@@ -506,6 +564,12 @@ export const formatSearchResult = (result: SearchResult): string => {
   lines.push(`# Search Results: "${result.query}"\n`);
   lines.push(`**Query Type:** ${result.query_type}\n`);
 
+  // Quick Summary - immediate visibility of what was found
+  const quickSummary = formatQuickSummary(result.context.relevant_files, result.context.code_locations);
+  if (quickSummary) {
+    lines.push(quickSummary);
+  }
+
   // Warnings (if any)
   if (result.warnings.length > 0) {
     lines.push(formatWarnings(result.warnings));
@@ -515,19 +579,21 @@ export const formatSearchResult = (result: SearchResult): string => {
   lines.push(formatSearchMetadata(result.metadata));
   lines.push('');
 
-  // Context: Files
-  if (result.context.relevant_files.length > 0) {
-    lines.push('## Relevant Files\n');
-    for (const file of result.context.relevant_files) {
+  // Context: Files (skip top 5, already shown in Quick Summary)
+  const remainingFiles = result.context.relevant_files.slice(5);
+  if (remainingFiles.length > 0) {
+    lines.push('## Additional Files\n');
+    for (const file of remainingFiles) {
       lines.push(formatRelevantFile(file, true));
       lines.push('');
     }
   }
 
-  // Context: Code Locations (Chunks)
-  if (result.context.code_locations.length > 0) {
-    lines.push('## Code Locations\n');
-    for (const chunk of result.context.code_locations) {
+  // Context: Code Locations (skip top 5, already shown in Quick Summary)
+  const remainingChunks = result.context.code_locations.slice(5);
+  if (remainingChunks.length > 0) {
+    lines.push('## Additional Code Locations\n');
+    for (const chunk of remainingChunks) {
       lines.push(formatRelevantChunk(chunk));
       lines.push('');
     }

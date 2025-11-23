@@ -92,9 +92,9 @@ export interface PerformanceConfig {
   hnsw_ef_search: number;
   /** HNSW index construction parameter (default: 200) - higher = better quality */
   hnsw_ef_construction: number;
-  /** Minimum similarity score for file-level retrieval (default: 0.5, tuned for natural language queries) */
+  /** Minimum similarity score for file-level retrieval (default: 0.3) */
   similarity_threshold: number;
-  /** Minimum similarity score for chunk-level retrieval (default: 0.50, matches file-level threshold) */
+  /** Minimum similarity score for chunk-level retrieval (default: 0.2, uses enhanced embedding) */
   chunk_similarity_threshold: number;
   /** Similarity threshold for deduplication (default: 0.92) */
   dedup_threshold: number;
@@ -112,6 +112,10 @@ export interface PerformanceConfig {
   indexing_batch_size: number;
   /** Batch size for embedding generation (default: 50) */
   embedding_batch_size: number;
+  /** Weight for vector similarity in hybrid search (default: 0.7) */
+  hybrid_vector_weight: number;
+  /** Weight for keyword (BM25) score in hybrid search (default: 0.3) */
+  hybrid_keyword_weight: number;
 }
 
 /**
@@ -134,6 +138,8 @@ export interface FeatureFlags {
   enable_llm_summaries: boolean;
   /** Enable TypeScript path mapping (default: true) */
   enable_tsconfig_paths: boolean;
+  /** Enable hybrid search combining vector + full-text search (default: true) */
+  enable_hybrid_search: boolean;
 }
 
 /**
@@ -142,8 +148,6 @@ export interface FeatureFlags {
 export interface IndexingDefaults {
   /** Respect .gitignore patterns (default: true) */
   respect_gitignore: boolean;
-  /** Include markdown files (default: false) */
-  include_markdown: boolean;
   /** Maximum file size in lines (default: 5000) */
   max_file_size: number;
   /** Enable secret file protection (default: true) */
@@ -259,6 +263,8 @@ export const ENV_VARS = {
   SIMILARITY_THRESHOLD: 'SIMILARITY_THRESHOLD',
   CHUNK_SIMILARITY_THRESHOLD: 'CHUNK_SIMILARITY_THRESHOLD',
   DEDUP_THRESHOLD: 'DEDUP_THRESHOLD',
+  HYBRID_VECTOR_WEIGHT: 'HYBRID_VECTOR_WEIGHT',
+  HYBRID_KEYWORD_WEIGHT: 'HYBRID_KEYWORD_WEIGHT',
 
   // Depths
   IMPORT_DEPTH: 'IMPORT_DEPTH',
@@ -267,7 +273,6 @@ export const ENV_VARS = {
 
   // Indexing
   MAX_FILE_SIZE: 'MAX_FILE_SIZE',
-  INCLUDE_MARKDOWN: 'INCLUDE_MARKDOWN',
   PROTECT_SECRETS: 'PROTECT_SECRETS',
   SECRET_PATTERNS: 'SECRET_PATTERNS',
 
@@ -276,6 +281,7 @@ export const ENV_VARS = {
   ENABLE_SERVICE_DETECTION: 'ENABLE_SERVICE_DETECTION',
   ENABLE_MULTI_REPO: 'ENABLE_MULTI_REPO',
   ENABLE_API_ENDPOINT_DETECTION: 'ENABLE_API_ENDPOINT_DETECTION',
+  ENABLE_HYBRID_SEARCH: 'ENABLE_HYBRID_SEARCH',
 } as const;
 
 /**
@@ -311,8 +317,8 @@ export const DEFAULT_CONFIG: CindexConfig = {
   performance: {
     hnsw_ef_search: 300,
     hnsw_ef_construction: 200,
-    similarity_threshold: 0.5,
-    chunk_similarity_threshold: 0.50,
+    similarity_threshold: 0.3,
+    chunk_similarity_threshold: 0.2,
     dedup_threshold: 0.92,
     import_depth: 3,
     workspace_depth: 2,
@@ -321,6 +327,8 @@ export const DEFAULT_CONFIG: CindexConfig = {
     warn_context_tokens: 100000,
     indexing_batch_size: 100,
     embedding_batch_size: 50,
+    hybrid_vector_weight: 0.7,
+    hybrid_keyword_weight: 0.3,
   },
   features: {
     enable_workspace_detection: true,
@@ -331,10 +339,10 @@ export const DEFAULT_CONFIG: CindexConfig = {
     enable_incremental_indexing: true,
     enable_llm_summaries: true,
     enable_tsconfig_paths: true,
+    enable_hybrid_search: true,
   },
   indexing: {
     respect_gitignore: true,
-    include_markdown: false,
     max_file_size: 5000,
     protect_secrets: true,
     secret_patterns: [],

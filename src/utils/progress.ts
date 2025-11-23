@@ -151,6 +151,11 @@ export class ProgressTracker {
       this.stats.avg_file_time_ms = this.stats.total_time_ms / this.stats.files_processed;
     }
 
+    // Populate alias fields for MCP tool compatibility
+    this.stats.files_indexed = this.stats.files_processed;
+    this.stats.chunks_created = this.stats.chunks_embedded;
+    this.stats.indexing_time_ms = this.stats.total_time_ms;
+
     return { ...this.stats };
   };
 

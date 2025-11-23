@@ -324,19 +324,15 @@ export const validateMaxResults = (value: unknown, required = false): number | u
 
 /**
  * Validate file_path parameter
+ *
+ * Accepts both absolute paths (starting with /) and relative paths.
+ * Relative paths are matched against file_path column suffix in database.
  */
 export const validateFilePath = (value: unknown, required = true): string | undefined => {
   const path = validateNonEmptyString('file_path', value, required);
 
-  if (path !== undefined && !path.startsWith('/')) {
-    throw new ValidationError(
-      'file_path',
-      'Must be an absolute path',
-      { path },
-      'Provide an absolute file path starting with /'
-    );
-  }
-
+  // Accept both absolute and relative paths
+  // Database will handle matching via suffix if relative
   return path;
 };
 

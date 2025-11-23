@@ -98,6 +98,18 @@ ALTER TABLE code_symbols ADD COLUMN IF NOT EXISTS workspace_id TEXT;
 ALTER TABLE code_symbols ADD COLUMN IF NOT EXISTS package_name TEXT;
 ALTER TABLE code_symbols ADD COLUMN IF NOT EXISTS service_id TEXT;
 
+-- Hybrid Search Support (vector + full-text search)
+-- tsvector columns for PostgreSQL full-text search, combined with vector similarity
+ALTER TABLE code_chunks ADD COLUMN IF NOT EXISTS content_tsv tsvector;
+ALTER TABLE code_files ADD COLUMN IF NOT EXISTS summary_tsv tsvector;
+
+-- GIN indexes for full-text search performance
+CREATE INDEX IF NOT EXISTS idx_chunks_content_fts ON code_chunks USING GIN (content_tsv);
+CREATE INDEX IF NOT EXISTS idx_files_summary_fts ON code_files USING GIN (summary_tsv);
+
+COMMENT ON COLUMN code_chunks.content_tsv IS 'Full-text search vector for hybrid search. Generated from chunk_content during indexing.';
+COMMENT ON COLUMN code_files.summary_tsv IS 'Full-text search vector for hybrid search. Generated from file_summary during indexing.';
+
 CREATE TABLE IF NOT EXISTS workspaces (
     id SERIAL PRIMARY KEY,
     repo_id TEXT NOT NULL,
@@ -329,6 +341,9 @@ CREATE TABLE IF NOT EXISTS documentation_files (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Hybrid Search for documentation (tsvector for full-text search)
+ALTER TABLE documentation_chunks ADD COLUMN IF NOT EXISTS content_tsv tsvector;
+
 -- Indexes for documentation
 CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc_id ON documentation_chunks(doc_id);
 CREATE INDEX IF NOT EXISTS idx_doc_chunks_file ON documentation_chunks(file_path);
@@ -336,6 +351,9 @@ CREATE INDEX IF NOT EXISTS idx_doc_chunks_type ON documentation_chunks(chunk_typ
 CREATE INDEX IF NOT EXISTS idx_doc_chunks_tags ON documentation_chunks USING GIN (tags);
 CREATE INDEX IF NOT EXISTS idx_doc_chunks_language ON documentation_chunks(language) WHERE language IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_doc_chunks_vector ON documentation_chunks USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_doc_chunks_content_fts ON documentation_chunks USING GIN (content_tsv);
+
+COMMENT ON COLUMN documentation_chunks.content_tsv IS 'Full-text search vector for hybrid search. Generated from content during indexing.';
 
 CREATE INDEX IF NOT EXISTS idx_doc_files_doc_id ON documentation_files(doc_id);
 CREATE INDEX IF NOT EXISTS idx_doc_files_tags ON documentation_files USING GIN (tags);

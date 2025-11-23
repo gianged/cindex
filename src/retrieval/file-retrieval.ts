@@ -2,11 +2,13 @@
  * File-Level Retrieval (Stage 1 of retrieval pipeline)
  *
  * Performs broad file-level semantic search using summary embeddings.
- * Returns top N relevant files ranked by cosine similarity.
+ * Supports hybrid search combining vector similarity with full-text search.
+ * Returns top N relevant files ranked by relevance score.
  */
 
 import { type DatabaseClient } from '@database/client';
 import { type ScopeFilter } from '@retrieval/scope-filter';
+import { buildFileLevelHybridSql, getHybridConfig, sanitizeQueryForFts } from '@utils/hybrid-search';
 import { logger } from '@utils/logger';
 import { type CindexConfig } from '@/types/config';
 import { type QueryEmbedding, type RelevantFile } from '@/types/retrieval';
@@ -67,20 +69,33 @@ export const retrieveFiles = async (
   // Use config threshold if not provided
   const threshold = similarityThreshold ?? config.performance.similarity_threshold;
 
+  // Get hybrid search configuration
+  const hybridConfig = getHybridConfig(config);
+
   logger.debug('Starting file-level retrieval', {
     queryType: queryEmbedding.query_type,
     maxFiles,
     threshold,
+    hybridSearch: hybridConfig.enabled,
     scopeFilter: scopeFilter ? `${scopeFilter.mode} (${scopeFilter.repo_ids.length.toString()} repos)` : 'none',
   });
 
   // Convert embedding array to pgvector format
   const embeddingVector = `[${queryEmbedding.embedding.join(',')}]`;
 
+  // Sanitize query text for full-text search
+  const queryText = sanitizeQueryForFts(queryEmbedding.query_text);
+
+  // Build parameters array
+  // $1 = embedding vector, $2 = threshold, $3 = query text (for hybrid search)
+  const params: unknown[] = [embeddingVector, threshold, queryText];
+  let paramIndex = 4;
+
+  // Build hybrid search SQL components
+  const hybridSql = buildFileLevelHybridSql(1, 3, 2, hybridConfig);
+
   // Build WHERE clauses for scope filtering
-  const whereClauses: string[] = ['1 - (summary_embedding <=> $1::vector) > $2'];
-  const params: unknown[] = [embeddingVector, threshold];
-  let paramIndex = 3;
+  const whereClauses: string[] = [hybridSql.whereCondition];
 
   // Apply scope filtering if provided (multi-project mode)
   // Filter by repository IDs (from Stage 0)
@@ -114,9 +129,8 @@ export const retrieveFiles = async (
   // Add maxFiles as final parameter
   params.push(maxFiles);
 
-  // SQL query with pgvector cosine distance and scope filtering
-  // IMPORTANT: Use ORDER BY embedding <=> query for index optimization
-  // Reference: docs/syntax.md#L389-L393 (pgvector distance operators)
+  // SQL query with hybrid search (vector + full-text) and scope filtering
+  // Hybrid score combines: (vector_weight * cosine_similarity) + (keyword_weight * ts_rank_cd)
   const query = `
     SELECT
       file_path,
@@ -125,14 +139,14 @@ export const retrieveFiles = async (
       total_lines,
       COALESCE(imports, '{}') AS imports,
       COALESCE(exports, '{}') AS exports,
-      1 - (summary_embedding <=> $1::vector) AS similarity,
+      ${hybridSql.selectExpressions},
       workspace_id,
       package_name,
       service_id,
       repo_id
     FROM code_files
     WHERE ${whereClauses.join(' AND ')}
-    ORDER BY summary_embedding <=> $1::vector
+    ORDER BY ${hybridSql.orderBy}
     LIMIT $${paramIndex.toString()}
   `;
 
@@ -159,6 +173,7 @@ export const retrieveFiles = async (
     logger.info('File-level retrieval complete', {
       filesRetrieved: files.length,
       threshold,
+      hybridSearch: hybridConfig.enabled,
       retrievalTime,
       topSimilarity: files[0]?.similarity.toFixed(3),
       lowestSimilarity: files[files.length - 1]?.similarity.toFixed(3),
@@ -199,17 +214,24 @@ export const retrieveFilesFiltered = async (
 ): Promise<RelevantFile[]> => {
   const startTime = Date.now();
   const threshold = similarityThreshold ?? config.performance.similarity_threshold;
+  const hybridConfig = getHybridConfig(config);
 
   logger.debug('Starting filtered file-level retrieval', {
     queryType: queryEmbedding.query_type,
     repoIds,
     maxFiles,
     threshold,
+    hybridSearch: hybridConfig.enabled,
   });
 
   const embeddingVector = `[${queryEmbedding.embedding.join(',')}]`;
+  const queryText = sanitizeQueryForFts(queryEmbedding.query_text);
 
-  // Add repo_id filter to query
+  // Build hybrid search SQL components
+  // $1 = embedding, $2 = threshold, $3 = query text, $4 = maxFiles, $5 = repoIds
+  const hybridSql = buildFileLevelHybridSql(1, 3, 2, hybridConfig);
+
+  // Add repo_id filter to query with hybrid search
   const query = `
     SELECT
       file_path,
@@ -218,19 +240,19 @@ export const retrieveFilesFiltered = async (
       total_lines,
       COALESCE(imports, '{}') AS imports,
       COALESCE(exports, '{}') AS exports,
-      1 - (summary_embedding <=> $1::vector) AS similarity,
+      ${hybridSql.selectExpressions},
       workspace_id,
       package_name,
       service_id,
       repo_id
     FROM code_files
-    WHERE 1 - (summary_embedding <=> $1::vector) > $2
-      AND repo_id = ANY($4::text[])
-    ORDER BY summary_embedding <=> $1::vector
-    LIMIT $3
+    WHERE (${hybridSql.whereCondition})
+      AND repo_id = ANY($5::text[])
+    ORDER BY ${hybridSql.orderBy}
+    LIMIT $4
   `;
 
-  const params = [embeddingVector, threshold, maxFiles, repoIds];
+  const params = [embeddingVector, threshold, queryText, maxFiles, repoIds];
 
   try {
     const result = await db.query<FileRetrievalRow>(query, params);

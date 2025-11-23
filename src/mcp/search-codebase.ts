@@ -38,7 +38,8 @@ export interface SearchCodebaseInput {
   include_imports?: boolean; // Default: true
   import_depth?: number; // Default: 3, Range: 1-3
   dedup_threshold?: number; // Default: 0.92, Range: 0.0-1.0
-  similarity_threshold?: number; // Default: 0.75, Range: 0.0-1.0
+  similarity_threshold?: number; // Default: 0.3, Range: 0.0-1.0 (file-level)
+  chunk_similarity_threshold?: number; // Default: 0.2, Range: 0.0-1.0 (chunk-level)
 
   // Multi-project filtering
   workspace_filter?: string | string[];
@@ -215,6 +216,11 @@ export const searchCodebaseTool = async (
   const importDepth = validateImportDepth(input.import_depth, false);
   const dedupThreshold = validateThreshold('dedup_threshold', input.dedup_threshold, false);
   const similarityThreshold = validateThreshold('similarity_threshold', input.similarity_threshold, false);
+  const chunkSimilarityThreshold = validateThreshold(
+    'chunk_similarity_threshold',
+    input.chunk_similarity_threshold,
+    false
+  );
 
   // Validate multi-project filters with normalization
   const workspaceFilter = normalizeWorkspaceFilter(input.workspace_filter);
@@ -282,6 +288,7 @@ export const searchCodebaseTool = async (
     import_depth: importDepth,
     dedup_threshold: dedupThreshold,
     similarity_threshold: similarityThreshold,
+    chunk_similarity_threshold: chunkSimilarityThreshold,
 
     // Multi-project filtering
     workspace_filter: workspaceFilter,

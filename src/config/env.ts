@@ -195,6 +195,19 @@ export const loadConfig = (): CindexConfig => {
     1.0
   );
   const dedupThreshold = parseEnvFloat(ENV_VARS.DEDUP_THRESHOLD, DEFAULT_CONFIG.performance.dedup_threshold, 0.0, 1.0);
+  // Hybrid search weights: vector (semantic) vs keyword (BM25) balance
+  const hybridVectorWeight = parseEnvFloat(
+    ENV_VARS.HYBRID_VECTOR_WEIGHT,
+    DEFAULT_CONFIG.performance.hybrid_vector_weight,
+    0.0,
+    1.0
+  );
+  const hybridKeywordWeight = parseEnvFloat(
+    ENV_VARS.HYBRID_KEYWORD_WEIGHT,
+    DEFAULT_CONFIG.performance.hybrid_keyword_weight,
+    0.0,
+    1.0
+  );
   // Dependency traversal depth limits to prevent runaway expansion
   const importDepth = parseEnvInt(ENV_VARS.IMPORT_DEPTH, DEFAULT_CONFIG.performance.import_depth, 1, 10);
   const workspaceDepth = parseEnvInt(ENV_VARS.WORKSPACE_DEPTH, DEFAULT_CONFIG.performance.workspace_depth, 1, 10);
@@ -203,7 +216,6 @@ export const loadConfig = (): CindexConfig => {
   // Load indexing configuration
   // Max file size in kilobytes (100KB - 100MB range)
   const maxFileSize = parseEnvInt(ENV_VARS.MAX_FILE_SIZE, DEFAULT_CONFIG.indexing.max_file_size, 100, 100000);
-  const includeMarkdown = parseEnvBool(ENV_VARS.INCLUDE_MARKDOWN, DEFAULT_CONFIG.indexing.include_markdown);
   // Secret file protection enabled by default for security
   const protectSecrets = parseEnvBool(ENV_VARS.PROTECT_SECRETS, DEFAULT_CONFIG.indexing.protect_secrets);
   // Parse comma-separated secret patterns (e.g., "*.key,credentials.json")
@@ -223,6 +235,7 @@ export const loadConfig = (): CindexConfig => {
     ENV_VARS.ENABLE_API_ENDPOINT_DETECTION,
     DEFAULT_CONFIG.features.enable_api_endpoint_detection
   );
+  const enableHybridSearch = parseEnvBool(ENV_VARS.ENABLE_HYBRID_SEARCH, DEFAULT_CONFIG.features.enable_hybrid_search);
 
   // Build final configuration object from all parsed values
   const config: CindexConfig = {
@@ -265,6 +278,8 @@ export const loadConfig = (): CindexConfig => {
       warn_context_tokens: DEFAULT_CONFIG.performance.warn_context_tokens,
       indexing_batch_size: DEFAULT_CONFIG.performance.indexing_batch_size,
       embedding_batch_size: DEFAULT_CONFIG.performance.embedding_batch_size,
+      hybrid_vector_weight: hybridVectorWeight,
+      hybrid_keyword_weight: hybridKeywordWeight,
     },
     features: {
       enable_workspace_detection: enableWorkspaceDetection,
@@ -275,10 +290,10 @@ export const loadConfig = (): CindexConfig => {
       enable_incremental_indexing: DEFAULT_CONFIG.features.enable_incremental_indexing,
       enable_llm_summaries: DEFAULT_CONFIG.features.enable_llm_summaries,
       enable_tsconfig_paths: DEFAULT_CONFIG.features.enable_tsconfig_paths,
+      enable_hybrid_search: enableHybridSearch,
     },
     indexing: {
       respect_gitignore: DEFAULT_CONFIG.indexing.respect_gitignore,
-      include_markdown: includeMarkdown,
       max_file_size: maxFileSize,
       protect_secrets: protectSecrets,
       secret_patterns: secretPatterns,
@@ -332,6 +347,16 @@ export const validateConfig = (config: CindexConfig): void => {
     // This is a warning, not an error, as it may be intentional for speed optimization
     logger.warn(
       `HNSW_EF_SEARCH (${String(config.performance.hnsw_ef_search)}) < HNSW_EF_CONSTRUCTION (${String(config.performance.hnsw_ef_construction)}). This may reduce search accuracy.`
+    );
+  }
+
+  // Validate hybrid search weights sum to ~1.0 (allow small tolerance for float precision)
+  const weightSum = config.performance.hybrid_vector_weight + config.performance.hybrid_keyword_weight;
+  if (Math.abs(weightSum - 1.0) > 0.01) {
+    logger.warn(
+      `Hybrid search weights sum to ${weightSum.toFixed(2)} (expected ~1.0). ` +
+        `vector_weight=${config.performance.hybrid_vector_weight.toString()}, ` +
+        `keyword_weight=${config.performance.hybrid_keyword_weight.toString()}`
     );
   }
 };

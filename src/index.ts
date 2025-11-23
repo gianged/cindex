@@ -179,7 +179,7 @@ const initializeServer = async (): Promise<AppState> => {
     'search_documentation',
     {
       description:
-        'Search indexed documentation using semantic similarity. Returns ranked results with section context and code blocks. Use after search_codebase for reference documentation.',
+        'Search indexed documentation using semantic similarity. Returns ranked results with section context and code blocks. Use for library docs, syntax references, API guides, and any markdown documentation indexed via index_documentation.',
       inputSchema: toMcpSchema(SearchDocumentationSchema),
     },
     async (params: SearchDocumentationInput) => searchDocumentationMCP(db.getPool(), ollama, config, params)
@@ -189,7 +189,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'search_api_contracts',
     {
-      description: 'Search API endpoints across services with semantic understanding',
+      description:
+        'Search API endpoints across services with semantic understanding. Use when implementing API integrations, finding endpoints to call, or understanding service communication patterns. Returns endpoint paths, HTTP methods, request/response schemas, and implementation file locations.',
       inputSchema: toMcpSchema(SearchAPIContractsSchema),
     },
     async (params: SearchAPIContractsInput) => searchAPIContractsMCP(db.getPool(), ollama, config, params)
@@ -199,7 +200,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'find_symbol_definition',
     {
-      description: 'Find symbol definitions and optionally show usages across the codebase',
+      description:
+        'Find symbol definitions and optionally show usages across the codebase. Use when you need to locate where a function, class, or variable is defined, or track all usages before refactoring. Returns file path, line number, signature, and optionally all usage locations.',
       inputSchema: toMcpSchema(FindSymbolSchema),
     },
     async (params: FindSymbolInput) => findSymbolMCP(db.getPool(), params)
@@ -213,7 +215,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'get_file_context',
     {
-      description: 'Get complete context for a file including callers, callees, and import chain',
+      description:
+        'Get complete context for a file including callers, callees, and import chain. Use BEFORE modifying any file to understand its dependencies, what functions call it, and what it imports. Essential for safe refactoring and understanding code impact.',
       inputSchema: toMcpSchema(GetFileContextSchema),
     },
     async (params: GetFileContextInput) => getFileContextMCP(db.getPool(), params)
@@ -223,7 +226,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'get_workspace_context',
     {
-      description: 'Get full context for a workspace including dependencies and dependents',
+      description:
+        'Get full context for a workspace including dependencies and dependents. Use when working in monorepos to understand package relationships before making cross-package changes. Returns package dependencies, which packages depend on it, and all files in the workspace.',
       inputSchema: toMcpSchema(GetWorkspaceContextSchema),
     },
     async (params: GetWorkspaceContextInput) => getWorkspaceContextMCP(db.getPool(), params)
@@ -233,7 +237,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'get_service_context',
     {
-      description: 'Get full context for a service including API contracts and dependencies',
+      description:
+        'Get full context for a service including API contracts and dependencies. Use when implementing features that span microservices, or understanding service API contracts before integration. Returns API endpoints, service dependencies, and all files in the service.',
       inputSchema: toMcpSchema(GetServiceContextSchema),
     },
     async (params: GetServiceContextInput) => getServiceContextMCP(db.getPool(), params)
@@ -252,7 +257,29 @@ const initializeServer = async (): Promise<AppState> => {
       inputSchema: toMcpSchema(IndexRepositorySchema),
     },
     async (params: IndexRepositoryInput) => {
-      const orchestrator = createOrchestrator(params.repo_path, params as unknown as IndexingOptions);
+      // Convert snake_case MCP params to camelCase IndexingOptions
+      const indexingOptions: IndexingOptions = {
+        incremental: params.incremental,
+        languages: params.languages,
+        respectGitignore: params.respect_gitignore,
+        maxFileSize: params.max_file_size,
+        summaryMethod: params.summary_method,
+        repoId: params.repo_id,
+        repoName: params.repo_name,
+        repoType: params.repo_type,
+        detectWorkspaces: params.detect_workspaces,
+        workspaceConfig: params.workspace_config,
+        resolveWorkspaceAliases: params.resolve_workspace_aliases,
+        detectServices: params.detect_services,
+        serviceConfig: params.service_config,
+        detectApiEndpoints: params.detect_api_endpoints,
+        linkToRepos: params.link_to_repos,
+        updateCrossRepoDeps: params.update_cross_repo_deps,
+        version: params.version,
+        forceReindex: params.force_reindex,
+        metadata: params.metadata,
+      };
+      const orchestrator = createOrchestrator(params.repo_path, indexingOptions);
 
       const progressCallback = (progress: {
         stage: string;
@@ -304,7 +331,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'list_indexed_repos',
     {
-      description: 'List all indexed repositories with optional metadata, workspace counts, and service counts',
+      description:
+        'List all indexed repositories with optional metadata, workspace counts, and service counts. Use FIRST to check what codebases are available before searching. Shows last_indexed timestamp to identify outdated indexes.',
       inputSchema: toMcpSchema(ListIndexedReposSchema),
     },
     async (params: ListIndexedReposInput) => listIndexedReposMCP(db.getPool(), params)
@@ -314,7 +342,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'list_workspaces',
     {
-      description: 'List all workspaces in indexed repositories for monorepo support',
+      description:
+        'List all workspaces in indexed repositories for monorepo support. Use to discover available packages before implementing cross-package features or understanding monorepo structure.',
       inputSchema: toMcpSchema(ListWorkspacesSchema),
     },
     async (params: ListWorkspacesInput) => listWorkspacesMCP(db.getPool(), params)
@@ -324,7 +353,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'list_services',
     {
-      description: 'List all services across indexed repositories for microservice support',
+      description:
+        'List all services across indexed repositories for microservice support. Use to discover available services and their API endpoints before implementing cross-service features.',
       inputSchema: toMcpSchema(ListServicesSchema),
     },
     async (params: ListServicesInput) => listServicesMCP(db.getPool(), params)
@@ -348,7 +378,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'find_cross_workspace_usages',
     {
-      description: 'Find workspace package usages across the monorepo',
+      description:
+        'Find workspace package usages across the monorepo. Use BEFORE modifying shared packages to understand impact - shows which workspaces import the package and where. Essential for safe refactoring in monorepos.',
       inputSchema: toMcpSchema(FindCrossWorkspaceUsagesSchema),
     },
     async (params: FindCrossWorkspaceUsagesInput) => findCrossWorkspaceUsagesMCP(db.getPool(), params)
@@ -358,7 +389,8 @@ const initializeServer = async (): Promise<AppState> => {
   server.registerTool(
     'find_cross_service_calls',
     {
-      description: 'Find inter-service API calls across microservices',
+      description:
+        'Find inter-service API calls across microservices. Use BEFORE modifying APIs to understand which services will be affected. Shows call sources, targets, and endpoints to prevent breaking changes.',
       inputSchema: toMcpSchema(FindCrossServiceCallsSchema),
     },
     async (params: FindCrossServiceCallsInput) => findCrossServiceCallsMCP(db.getPool(), params)

@@ -2,11 +2,13 @@
  * Chunk-Level Retrieval (Stage 2 of retrieval pipeline)
  *
  * Performs precise chunk-level semantic search within top files from Stage 1.
- * Returns code chunks ranked by cosine similarity with higher threshold than file-level search.
+ * Supports hybrid search combining vector similarity with full-text search.
+ * Returns code chunks ranked by relevance score.
  */
 
 import { type DatabaseClient } from '@database/client';
 import { type ScopeFilter } from '@retrieval/scope-filter';
+import { buildChunkLevelHybridSql, getHybridConfig, sanitizeQueryForFts } from '@utils/hybrid-search';
 import { logger } from '@utils/logger';
 import { type CindexConfig } from '@/types/config';
 import { type QueryEmbedding, type RelevantChunk, type RelevantFile } from '@/types/retrieval';
@@ -54,7 +56,7 @@ interface ChunkRetrievalRow {
 export const retrieveChunks = async (
   queryEmbedding: QueryEmbedding,
   relevantFiles: RelevantFile[],
-  _config: CindexConfig,
+  config: CindexConfig,
   db: DatabaseClient,
   scopeFilter: ScopeFilter | null = null,
   maxChunks = 100,
@@ -66,6 +68,9 @@ export const retrieveChunks = async (
   // Note: Chunks include file summaries but still score lower than file-level matches
   const threshold = chunkSimilarityThreshold ?? 0.3;
 
+  // Get hybrid search configuration
+  const hybridConfig = getHybridConfig(config);
+
   // Extract file paths from Stage 1 results
   const filePaths = relevantFiles.map((f) => f.file_path);
 
@@ -74,23 +79,36 @@ export const retrieveChunks = async (
     return [];
   }
 
+  // Use enhanced chunk_embedding for natural language queries if available
+  // This bridges the semantic gap between natural language and code-dominated chunk embeddings
+  const searchEmbedding = queryEmbedding.chunk_embedding ?? queryEmbedding.embedding;
+  const usingEnhanced = queryEmbedding.chunk_embedding !== undefined;
+
   logger.debug('Starting chunk-level retrieval', {
     queryType: queryEmbedding.query_type,
     filesProvided: filePaths.length,
     maxChunks,
     threshold,
+    hybridSearch: hybridConfig.enabled,
+    usingEnhancedEmbedding: usingEnhanced,
     scopeFilter: scopeFilter ? `${scopeFilter.mode} (${scopeFilter.repo_ids.length.toString()} repos)` : 'inherited',
   });
 
   // Convert embedding array to pgvector format
-  const embeddingVector = `[${queryEmbedding.embedding.join(',')}]`;
+  const embeddingVector = `[${searchEmbedding.join(',')}]`;
 
-  // SQL query with file path filtering
+  // Sanitize query text for full-text search
+  const queryText = sanitizeQueryForFts(queryEmbedding.query_text);
+
+  // Build hybrid search SQL components
+  // $1 = embedding, $2 = threshold, $3 = query text, $4 = maxChunks, $5 = filePaths
+  const hybridSql = buildChunkLevelHybridSql(1, 3, 2, hybridConfig);
+
+  // SQL query with hybrid search (vector + full-text) and file path filtering
   // IMPORTANT:
-  // - Only search within files from Stage 1 (file_path = ANY($4))
+  // - Only search within files from Stage 1 (file_path = ANY($5))
   // - Exclude file_summary chunks (chunk_type != 'file_summary')
-  // - Higher threshold than Stage 1 (0.75 vs 0.70)
-  // - Use ORDER BY embedding <=> query for index optimization
+  // - Hybrid score combines vector similarity and keyword matching
   const query = `
     SELECT
       id AS chunk_id,
@@ -101,21 +119,21 @@ export const retrieveChunks = async (
       end_line,
       token_count,
       metadata,
-      1 - (embedding <=> $1::vector) AS similarity,
+      ${hybridSql.selectExpressions},
       embedding::text,
       workspace_id,
       package_name,
       service_id,
       repo_id
     FROM code_chunks
-    WHERE file_path = ANY($4::text[])
+    WHERE file_path = ANY($5::text[])
       AND chunk_type != 'file_summary'
-      AND 1 - (embedding <=> $1::vector) > $2
-    ORDER BY embedding <=> $1::vector
-    LIMIT $3
+      AND (${hybridSql.whereCondition})
+    ORDER BY ${hybridSql.orderBy}
+    LIMIT $4
   `;
 
-  const params = [embeddingVector, threshold, maxChunks, filePaths];
+  const params = [embeddingVector, threshold, queryText, maxChunks, filePaths];
 
   try {
     const result = await db.query<ChunkRetrievalRow>(query, params);
@@ -162,6 +180,7 @@ export const retrieveChunks = async (
       chunksRetrieved: chunks.length,
       filesWithChunks: Object.keys(chunksByFile).length,
       threshold,
+      hybridSearch: hybridConfig.enabled,
       retrievalTime,
       topSimilarity: chunks[0]?.similarity.toFixed(3),
       lowestSimilarity: chunks[chunks.length - 1]?.similarity.toFixed(3),
@@ -198,7 +217,7 @@ export const retrieveChunks = async (
 export const retrieveChunksFiltered = async (
   queryEmbedding: QueryEmbedding,
   relevantFiles: RelevantFile[],
-  _config: CindexConfig,
+  config: CindexConfig,
   db: DatabaseClient,
   filters: {
     repo_ids?: string[];
@@ -211,6 +230,7 @@ export const retrieveChunksFiltered = async (
 ): Promise<RelevantChunk[]> => {
   const startTime = Date.now();
   const threshold = chunkSimilarityThreshold ?? 0.3;
+  const hybridConfig = getHybridConfig(config);
   const filePaths = relevantFiles.map((f) => f.file_path);
 
   if (filePaths.length === 0) {
@@ -218,24 +238,35 @@ export const retrieveChunksFiltered = async (
     return [];
   }
 
+  // Use enhanced chunk_embedding for natural language queries if available
+  const searchEmbedding = queryEmbedding.chunk_embedding ?? queryEmbedding.embedding;
+  const usingEnhanced = queryEmbedding.chunk_embedding !== undefined;
+
   logger.debug('Starting filtered chunk-level retrieval', {
     queryType: queryEmbedding.query_type,
     filesProvided: filePaths.length,
     filters,
     maxChunks,
     threshold,
+    hybridSearch: hybridConfig.enabled,
+    usingEnhancedEmbedding: usingEnhanced,
   });
 
-  const embeddingVector = `[${queryEmbedding.embedding.join(',')}]`;
+  const embeddingVector = `[${searchEmbedding.join(',')}]`;
+  const queryText = sanitizeQueryForFts(queryEmbedding.query_text);
+
+  // Build hybrid search SQL components
+  // $1 = embedding, $2 = threshold, $3 = query text, $4 = maxChunks, $5 = filePaths
+  const hybridSql = buildChunkLevelHybridSql(1, 3, 2, hybridConfig);
 
   // Build dynamic WHERE clause based on filters
   const whereClauses: string[] = [
-    'file_path = ANY($4::text[])',
+    'file_path = ANY($5::text[])',
     "chunk_type != 'file_summary'",
-    '1 - (embedding <=> $1::vector) > $2',
+    `(${hybridSql.whereCondition})`,
   ];
 
-  const params: unknown[] = [embeddingVector, threshold, maxChunks, filePaths];
+  const params: unknown[] = [embeddingVector, threshold, queryText, maxChunks, filePaths];
 
   if (filters.repo_ids && filters.repo_ids.length > 0) {
     whereClauses.push(`repo_id = ANY($${String(params.length + 1)}::text[])`);
@@ -267,7 +298,7 @@ export const retrieveChunksFiltered = async (
       end_line,
       token_count,
       metadata,
-      1 - (embedding <=> $1::vector) AS similarity,
+      ${hybridSql.selectExpressions},
       embedding::text,
       workspace_id,
       package_name,
@@ -275,8 +306,8 @@ export const retrieveChunksFiltered = async (
       repo_id
     FROM code_chunks
     WHERE ${whereClauses.join(' AND ')}
-    ORDER BY embedding <=> $1::vector
-    LIMIT $3
+    ORDER BY ${hybridSql.orderBy}
+    LIMIT $4
   `;
 
   try {

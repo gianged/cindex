@@ -32,6 +32,17 @@ export interface QueryEmbedding {
   /** Generated embedding vector (1024 dimensions for bge-m3:567m) */
   embedding: number[];
 
+  /**
+   * Enhanced embedding for chunk-level search (natural language queries only)
+   *
+   * For natural language queries, chunk embeddings are ~95% code content which
+   * creates a semantic gap. This enhanced embedding includes code-like context
+   * (keywords, patterns, structure hints) to bridge that gap.
+   *
+   * For code snippet queries, this is undefined (use `embedding` directly).
+   */
+  chunk_embedding?: number[];
+
   /** Time taken to generate embedding in milliseconds */
   generation_time_ms: number;
 }

@@ -88,10 +88,11 @@ const filterImportsByBoundaries = async (
   }
 
   // Query code_files to get workspace_id/service_id for all imports
+  // Explicitly cast to text[] for PostgreSQL compatibility
   const query = `
     SELECT file_path, workspace_id, service_id
     FROM code_files
-    WHERE file_path = ANY($1)
+    WHERE file_path = ANY($1::text[])
   `;
 
   const result = await db.query<{

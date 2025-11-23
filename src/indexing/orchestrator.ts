@@ -7,6 +7,7 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 import { type DatabaseClient } from '@database/client';
 import { type DatabaseWriter } from '@database/writer';
@@ -106,32 +107,35 @@ export class IndexingOrchestrator {
     // Store current repo path for use in persistence
     this.currentRepoPath = repoPath;
 
+    // Derive repoId from folder name if not provided
+    // This ensures all files are properly linked to the repository for search filtering
+    const repoId = options.repoId ?? path.basename(repoPath);
+
     // Start performance monitoring
     this.performanceMonitor.start();
 
     logger.info('Starting repository indexing', {
       repo: repoPath,
+      repoId,
       options,
     });
 
     try {
       // Stage 0: Persist repository metadata
       // This must happen before file discovery so files can reference the repository
-      if (options.repoId) {
-        const repository: Omit<Repository, 'id' | 'indexed_at' | 'last_updated'> = {
-          repo_id: options.repoId,
-          repo_name: options.repoName ?? options.repoId,
-          repo_path: repoPath,
-          repo_type: options.repoType ?? 'monolithic',
-          workspace_config: null, // Populated during workspace detection
-          workspace_patterns: null, // Populated during workspace detection
-          root_package_json: null, // Populated during workspace detection
-          git_remote_url: null, // Could extract from git, but not critical
-          metadata: options.metadata as RepositoryMetadata | null,
-        };
+      const repository: Omit<Repository, 'id' | 'indexed_at' | 'last_updated'> = {
+        repo_id: repoId,
+        repo_name: options.repoName ?? repoId,
+        repo_path: repoPath,
+        repo_type: options.repoType ?? 'monolithic',
+        workspace_config: null, // Populated during workspace detection
+        workspace_patterns: null, // Populated during workspace detection
+        root_package_json: null, // Populated during workspace detection
+        git_remote_url: null, // Could extract from git, but not critical
+        metadata: options.metadata as RepositoryMetadata | null,
+      };
 
-        await this.persistRepositoryMetadata(repository);
-      }
+      await this.persistRepositoryMetadata(repository);
 
       // Stage 1: File Discovery
       this.progressTracker.setStage(IndexingStage.Discovering);
@@ -141,15 +145,28 @@ export class IndexingOrchestrator {
         count: discoveredFiles.length,
       });
 
+      // Enrich discovered files with repo_id for proper search filtering
+      // This ensures all files/chunks are linked to the repository
+      const enrichedFiles = discoveredFiles.map((file) => ({
+        ...file,
+        repo_id: file.repo_id ?? repoId,
+      }));
+
       // Stage 1.5: Incremental Indexing (if enabled)
-      let filesToProcess = discoveredFiles;
+      let filesToProcess = enrichedFiles;
       if (options.incremental) {
         logger.info('Incremental indexing enabled, detecting changes');
 
-        const { changes, stats } = await detectFileChanges(this.db, repoPath, discoveredFiles);
+        const { changes, stats } = await detectFileChanges(this.db, repoPath, enrichedFiles);
 
         // Process incremental changes (delete stale data)
-        filesToProcess = await processIncrementalChanges(this.db, changes);
+        const incrementalFiles = await processIncrementalChanges(this.db, changes);
+
+        // Re-enrich files after incremental processing to ensure repo_id is set
+        filesToProcess = incrementalFiles.map((file) => ({
+          ...file,
+          repo_id: file.repo_id ?? repoId,
+        }));
 
         logger.info('Incremental indexing prepared', {
           total_discovered: stats.total_discovered,

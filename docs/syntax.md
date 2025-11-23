@@ -735,10 +735,10 @@ npm install tree-sitter-typescript@^0.21.2
 
 ```
 server/
-   index.ts          # Server initialization
-   tools/            # Tool implementations
-   resources/        # Resource handlers
-   prompts/          # Prompt templates
+ index.ts          # Server initialization
+ tools/            # Tool implementations
+ resources/        # Resource handlers
+ prompts/          # Prompt templates
 ```
 
 #### Vector Database Schema

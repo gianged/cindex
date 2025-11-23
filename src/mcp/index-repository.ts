@@ -31,7 +31,6 @@ export interface IndexRepositoryInput {
   repo_path: string; // Absolute path to repository root
   incremental?: boolean; // Default: true - Skip unchanged files
   languages?: string[]; // Filter by languages (empty = all)
-  include_markdown?: boolean; // Default: false - Index markdown files
   respect_gitignore?: boolean; // Default: true - Respect .gitignore
   max_file_size?: number; // Default: 5000 lines - Max file size in lines
   protect_secrets?: boolean; // Default: true - Detect and exclude secret files (.env, credentials, keys)
@@ -158,7 +157,6 @@ export const indexRepositoryTool = async (
   // Validate optional core parameters
   const incremental = validateBoolean('incremental', input.incremental, false) ?? true;
   const languages = validateLanguages(input.languages, false);
-  const includeMarkdown = validateBoolean('include_markdown', input.include_markdown, false) ?? false;
   const respectGitignore = validateBoolean('respect_gitignore', input.respect_gitignore, false) ?? true;
   const maxFileSize = validateMaxFileSize(input.max_file_size, false) ?? 5000;
   const protectSecrets = validateBoolean('protect_secrets', input.protect_secrets, false) ?? true;
@@ -210,7 +208,6 @@ export const indexRepositoryTool = async (
     // Core options
     incremental,
     languages: languages ?? [],
-    includeMarkdown,
     respectGitignore,
     maxFileSize,
     protectSecrets,

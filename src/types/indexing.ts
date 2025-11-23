@@ -381,9 +381,6 @@ export interface IndexingOptions {
   /** Languages to index (empty array = all languages) */
   languages?: string[];
 
-  /** Include markdown files (except README.md which is always included) */
-  includeMarkdown?: boolean;
-
   /** Respect .gitignore patterns during file discovery */
   respectGitignore?: boolean;
 
@@ -448,9 +445,6 @@ export interface IndexingOptions {
   onProgress?: (stage: string, current: number, total: number, message: string, etaSeconds?: number) => void;
 
   // Legacy properties (for backwards compatibility)
-  /** @deprecated Use includeMarkdown */
-  include_markdown?: boolean;
-
   /** @deprecated Use maxFileSize */
   max_file_size?: number;
 

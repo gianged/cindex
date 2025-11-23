@@ -62,19 +62,29 @@ export const getFileContext = async (
   includeCallees = true
 ): Promise<FileContext | null> => {
   try {
-    // Get file metadata
-    const fileResult = await db.query<CodeFile>(`SELECT * FROM code_files WHERE file_path = $1`, [filePath]);
+    // Get file metadata - try exact match first, then suffix match for relative paths
+    let fileResult = await db.query<CodeFile>(`SELECT * FROM code_files WHERE file_path = $1`, [filePath]);
+
+    // If not found and looks like a relative path, try suffix match
+    if (fileResult.rows.length === 0 && !filePath.startsWith('/')) {
+      fileResult = await db.query<CodeFile>(
+        `SELECT * FROM code_files WHERE file_path LIKE $1 ORDER BY LENGTH(file_path) ASC LIMIT 1`,
+        [`%/${filePath}`]
+      );
+    }
 
     if (fileResult.rows.length === 0) {
       return null;
     }
 
     const file = fileResult.rows[0];
+    // Use the actual file path from database for subsequent queries
+    const actualFilePath = file.file_path;
 
     // Get all chunks for this file
     const chunksResult = await db.query<CodeChunk>(
       `SELECT * FROM code_chunks WHERE file_path = $1 ORDER BY start_line ASC`,
-      [filePath]
+      [actualFilePath]
     );
 
     const chunks = chunksResult.rows;
@@ -82,13 +92,26 @@ export const getFileContext = async (
     // Get callers (reverse dependencies - files that import this file)
     let callers: string[] = [];
     if (includeCallers) {
-      // Search for this file path in other files' imports arrays
+      // Search for files that import this file by checking the JSONB imports array
+      // The imports column has structure: { "imports": [{ "path": "...", "line": 1, ... }] }
+      // We search for any import path that ends with this file's name (handles relative/alias imports)
+      // Extract filename without extension for matching (e.g., "utils.ts" -> "utils")
+      const pathParts = actualFilePath.split('/');
+      const fileName = pathParts[pathParts.length - 1].replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, '');
+
+      // Use JSONB operators to search within the imports array
+      // jsonb_path_exists checks if any element in imports array has a path ending with our filename
       const callersResult = await db.query<{ file_path: string }>(
         `SELECT DISTINCT file_path
          FROM code_files
-         WHERE $1 = ANY(imports)
+         WHERE imports IS NOT NULL
+           AND file_path != $1
+           AND EXISTS (
+             SELECT 1 FROM jsonb_array_elements(imports->'imports') AS imp
+             WHERE imp->>'path' LIKE '%' || $2 OR imp->>'path' LIKE '%/' || $2
+           )
          ORDER BY file_path`,
-        [filePath]
+        [actualFilePath, fileName]
       );
       callers = callersResult.rows.map((row) => row.file_path);
     }
@@ -229,10 +252,11 @@ export const listWorkspaces = async (
 export const getWorkspaceDependencies = async (db: Pool, workspaceId: string): Promise<string[]> => {
   try {
     const sql = `
-      SELECT dependency_package
-      FROM workspace_dependencies
-      WHERE workspace_id = $1
-      ORDER BY dependency_package
+      SELECT w.package_name as dependency_package
+      FROM workspace_dependencies wd
+      JOIN workspaces w ON wd.target_workspace_id = w.workspace_id
+      WHERE wd.source_workspace_id = $1
+      ORDER BY w.package_name
     `;
 
     const result = await db.query<{ dependency_package: string }>(sql, [workspaceId]);
@@ -254,10 +278,11 @@ export const getWorkspaceDependencies = async (db: Pool, workspaceId: string): P
 export const getWorkspaceDependents = async (db: Pool, packageName: string): Promise<string[]> => {
   try {
     const sql = `
-      SELECT workspace_id
-      FROM workspace_dependencies
-      WHERE dependency_package = $1
-      ORDER BY workspace_id
+      SELECT wd.source_workspace_id as workspace_id
+      FROM workspace_dependencies wd
+      JOIN workspaces w ON wd.target_workspace_id = w.workspace_id
+      WHERE w.package_name = $1
+      ORDER BY wd.source_workspace_id
     `;
 
     const result = await db.query<{ workspace_id: string }>(sql, [packageName]);
@@ -407,20 +432,18 @@ export const getServiceAPIEndpoints = async (db: Pool, serviceId: string): Promi
     const sql = `
       SELECT
         endpoint_path,
-        method,
+        http_method as method,
         service_id,
         (SELECT service_name FROM services WHERE service_id = $1) as service_name,
         api_type,
         description,
         request_schema,
         response_schema,
-        chunk_id as implementation_chunk_id,
-        deprecated,
-        deprecation_message,
-        metadata
+        implementation_chunk_id,
+        deprecated
       FROM api_endpoints
       WHERE service_id = $1
-      ORDER BY endpoint_path, method
+      ORDER BY endpoint_path, http_method
     `;
 
     const result = await db.query<APIEndpointMatch>(sql, [serviceId]);
@@ -430,7 +453,7 @@ export const getServiceAPIEndpoints = async (db: Pool, serviceId: string): Promi
       if (endpoint.implementation_chunk_id) {
         // Fetch chunk details to get file location and line range
         const chunkResult = await db.query<{ file_path: string; start_line: number; end_line: number }>(
-          `SELECT file_path, start_line, end_line FROM code_chunks WHERE chunk_id = $1`,
+          `SELECT file_path, start_line, end_line FROM code_chunks WHERE id = $1`,
           [endpoint.implementation_chunk_id]
         );
 
@@ -640,20 +663,19 @@ export const searchAPIContracts = async (
     const sql = `
       SELECT
         endpoint_path,
-        method,
+        http_method as method,
         service_id,
         (SELECT service_name FROM services WHERE services.service_id = api_endpoints.service_id) as service_name,
         api_type,
         description,
         request_schema,
         response_schema,
-        chunk_id as implementation_chunk_id,
+        implementation_chunk_id,
         deprecated,
-        deprecation_message,
-        1 - (endpoint_embedding <=> $1::vector) as similarity
+        1 - (embedding <=> $1::vector) as similarity
       FROM api_endpoints
-      WHERE endpoint_embedding IS NOT NULL
-        AND 1 - (endpoint_embedding <=> $1::vector) >= ${String(similarityThreshold)}
+      WHERE embedding IS NOT NULL
+        AND 1 - (embedding <=> $1::vector) >= ${String(similarityThreshold)}
         ${whereClause}
       ORDER BY similarity DESC
       LIMIT ${String(limit)}
@@ -665,7 +687,7 @@ export const searchAPIContracts = async (
     for (const endpoint of result.rows) {
       if (endpoint.implementation_chunk_id) {
         const chunkResult = await db.query<{ file_path: string; start_line: number; end_line: number }>(
-          `SELECT file_path, start_line, end_line FROM code_chunks WHERE chunk_id = $1`,
+          `SELECT file_path, start_line, end_line FROM code_chunks WHERE id = $1`,
           [endpoint.implementation_chunk_id]
         );
 
@@ -949,8 +971,8 @@ export const listIndexedRepositories = async (
       'r.repo_type',
       'r.repo_path',
       'r.indexed_at',
-      'r.version',
-      'r.upstream_url',
+      "r.metadata->>'version' as version",
+      "r.metadata->>'upstream_url' as upstream_url",
       'COUNT(DISTINCT f.id) as file_count',
     ];
 
@@ -977,19 +999,15 @@ export const listIndexedRepositories = async (
       joins.push('LEFT JOIN services s ON r.repo_id = s.repo_id');
     }
 
-    // Build GROUP BY clause
+    // Build GROUP BY clause (always include metadata for JSONB extraction)
     const groupByFields = [
       'r.repo_id',
       'r.repo_name',
       'r.repo_type',
       'r.repo_path',
       'r.indexed_at',
-      'r.version',
-      'r.upstream_url',
+      'r.metadata',
     ];
-    if (includeMetadata) {
-      groupByFields.push('r.metadata');
-    }
 
     const sql = `
       SELECT ${selectFields.join(', ')}

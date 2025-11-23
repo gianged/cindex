@@ -167,7 +167,6 @@ export const FindSymbolSchema = z.object({
  * @property repo_path - Absolute or relative path to repository root
  * @property incremental - Use incremental indexing (hash comparison, default: true)
  * @property languages - Specific languages to index (default: all supported)
- * @property include_markdown - Index markdown documentation files
  * @property respect_gitignore - Respect .gitignore exclusions (default: true)
  * @property max_file_size - Maximum file size in KB (100-10000, default: 1000)
  * @property summary_method - Summary generation method (llm/rule-based, default: llm)
@@ -191,7 +190,6 @@ export const IndexRepositorySchema = z.object({
   repo_path: z.string().min(1, 'Repository path is required'),
   incremental: z.boolean().optional(),
   languages: z.array(z.string()).optional(),
-  include_markdown: z.boolean().optional(),
   respect_gitignore: z.boolean().optional(),
   max_file_size: z.number().int().min(100).max(10000).optional(),
   summary_method: z.enum(['llm', 'rule-based']).optional(),
